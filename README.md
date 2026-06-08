@@ -10,6 +10,82 @@ GitHub Action to automatically fetch publications from OpenAlex based on member 
 - **Rich Metadata**: Includes title, authors, ORCIDs, year, DOI, venue, keywords, and abstract
 - **Targeted Filtering**: Only fetches publications affiliated with your institution
 
+## Development
+
+### Prerequisites
+
+- Node.js >= 20.0.0
+- pnpm (recommended) or npm
+
+### Setup
+
+1. Clone the repository:
+```bash
+git clone https://github.com/markuxt/sync-publications.git
+cd sync-publications
+```
+
+2. Install dependencies:
+```bash
+pnpm install
+```
+
+3. Configure environment variables:
+```bash
+cp .env.example .env
+nano .env  # Edit with your configuration
+```
+
+### Local Testing
+
+There are two ways to test the action locally:
+
+#### Option 1: Using the test script (Recommended)
+
+```bash
+./test-local.sh
+```
+
+This script will:
+- Load configuration from `.env`
+- Validate required variables
+- Run the action with your local content directory
+- Show detailed output
+
+#### Option 2: Manual environment variables
+
+```bash
+export ROR_ID="https://ror.org/03y4dt428"
+export CONTACT_EMAIL="your-email@example.com"
+export CONTENT_DIR="src"
+
+pnpm dev
+```
+
+### Building
+
+```bash
+pnpm build
+```
+
+This will compile TypeScript to JavaScript in the `dist/` directory.
+
+### Project Structure
+
+```
+sync-publications/
+├── src/
+│   ├── index.ts              # Main entry point
+│   ├── types.ts              # Type definitions
+│   ├── utils/                # Utility functions
+│   ├── scanners/             # Content scanners
+│   └── workers/              # Business logic
+├── action.yml                # GitHub Action config
+├── package.json              # Node.js configuration
+├── tsconfig.json             # TypeScript configuration
+└── README.md                 # This file
+```
+
 ## Usage
 
 ### Basic Example
