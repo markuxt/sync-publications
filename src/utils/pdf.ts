@@ -107,10 +107,11 @@ export async function downloadPdf(url: string): Promise<Buffer | null> {
  * Per-page text extraction. Returns an array indexed (0-based) per page.
  *
  * `unpdf.extractText` with `mergePages: false` returns `{ totalPages, text: string[] }`
- * where `text[i]` is the full text of page i+1.
+ * where `text[i]` is the full text of page i+1. unpdf requires the input
+ * to be a Uint8Array (not a Node Buffer).
  */
 export async function extractPageText(pdfBuffer: Buffer): Promise<string[]> {
-  const { text } = await extractText(pdfBuffer, { mergePages: false })
+  const { text } = await extractText(new Uint8Array(pdfBuffer), { mergePages: false })
   return text
 }
 
