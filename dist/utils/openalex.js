@@ -51,7 +51,7 @@ export async function getAuthorId(orcid, contactEmail) {
 export async function getWorksForAuthor(authorId, institutionId, contactEmail) {
     const works = [];
     let cursor = '*';
-    const fields = 'id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index';
+    const fields = 'id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location';
     while (true) {
         const data = await oaFetch(`/works?filter=author.id:${encodeURIComponent(authorId)},institution.id:${encodeURIComponent(institutionId)}&per_page=200&cursor=${encodeURIComponent(cursor)}&select=${fields}`, contactEmail);
         works.push(...(data.results ?? []));

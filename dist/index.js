@@ -17,6 +17,7 @@ import { join } from 'path';
 import { yamlStr } from './utils/yaml.js';
 import { initGitHubOutput, setOutput } from './utils/github.js';
 import { normalizeDoi } from './utils/doi.js';
+import { processPdf } from './utils/pdf.js';
 // API imports
 import { getInstitutionId, getAuthorId, getWorksForAuthor } from './utils/openalex.js';
 // Scanner imports
@@ -63,6 +64,9 @@ function buildMarkdown(pub) {
     lines.push(`doi: ${pub.doi ? yamlStr(pub.doi) : ''}`);
     lines.push(`openalex_id: ${pub.openalexId}`);
     lines.push(`venue: ${pub.venue ? yamlStr(pub.venue) : ''}`);
+    lines.push(`pdf_url: ${pub.pdfUrl ? yamlStr(pub.pdfUrl) : ''}`);
+    lines.push(`abstract_page: ${pub.abstractPage ?? ''}`);
+    lines.push(`abstract_screenshot: ${pub.abstractScreenshot ? yamlStr(pub.abstractScreenshot) : ''}`);
     if (pub.keywords.length) {
         lines.push('keywords:');
         for (const k of pub.keywords)
@@ -131,6 +135,29 @@ async function main() {
         const dir = join(PUBLICATIONS_DIR, String(pub.year), pub.openalexId);
         if (!existsSync(dir))
             mkdirSync(dir, { recursive: true });
+        // 7a. PDF: download, locate abstract page, render screenshot.
+        //     Failures are graceful — we still emit the markdown with whatever
+        //     metadata we have. We only run this for OA papers with a PDF URL.
+        if (pub.pdfUrl && !pub.hidden) {
+            try {
+                const relativeDir = join(CONTENT_DIR, 'publications', String(pub.year), pub.openalexId);
+                const result = await processPdf(pub, dir, relativeDir);
+                pub.pdfUrl = result.pdfUrl;
+                pub.abstractPage = result.abstractPage;
+                pub.abstractScreenshot = result.screenshotPath;
+                if (result.skipped) {
+                    console.log(`  [pdf skipped] ${result.reason ?? 'unknown reason'}`);
+                }
+                else {
+                    console.log(`  [pdf] page ${result.abstractPage} → ${result.screenshotPath}`);
+                }
+            }
+            catch (err) {
+                // Defensive — processPdf is meant to never throw, but if it does we
+                // don't want to lose the publication.
+                console.warn(`  [pdf error] ${err.message}`);
+            }
+        }
         const filePath = join(dir, 'index.md');
         writeFileSync(filePath, buildMarkdown(pub), 'utf-8');
         console.log(`  [${pub.hidden ? 'hidden' : 'visible'}] ${filePath}`);

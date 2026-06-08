@@ -8,6 +8,7 @@
 import { formatAuthorName, extractOrcidId } from '../utils/formatters.js';
 import { reconstructAbstract } from '../utils/abstract.js';
 import { doiToUrl } from '../utils/doi.js';
+import { pickPdfUrl } from '../utils/pdf.js';
 /**
  * Parse an OpenAlex work object into our internal publication format.
  * Returns null if the work is missing required fields (id / title / year).
@@ -49,6 +50,8 @@ export function parseWork(work) {
         : [];
     // Extract abstract (reconstructed from inverted index)
     const abstract = reconstructAbstract(work.abstract_inverted_index ?? null);
+    // Extract best-effort open-access PDF URL
+    const pdfUrl = pickPdfUrl(work);
     return {
         openalexId: rawId,
         title,
@@ -59,6 +62,9 @@ export function parseWork(work) {
         venue,
         keywords,
         abstract,
+        pdfUrl,
+        abstractPage: null,
+        abstractScreenshot: null,
         hidden: false
     };
 }

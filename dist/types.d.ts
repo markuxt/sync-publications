@@ -18,6 +18,12 @@ export interface PendingPublication {
     venue: string | null;
     keywords: string[];
     abstract: string | null;
+    /** Best-effort open-access PDF URL (canonical, https). */
+    pdfUrl: string | null;
+    /** 1-indexed page number on which the abstract was located. */
+    abstractPage: number | null;
+    /** Relative path (from repo root) to the rendered abstract-page PNG. */
+    abstractScreenshot: string | null;
     hidden: boolean;
 }
 export interface MemberInfo {
@@ -33,6 +39,20 @@ export interface OpenAlexWork {
     primary_location?: PrimaryLocation;
     keywords?: Keyword[];
     abstract_inverted_index?: Record<string, number[]>;
+    open_access?: OpenAccess;
+    best_oa_location?: OpenAccessLocation;
+}
+export interface OpenAccess {
+    is_oa?: boolean;
+    oa_url?: string | null;
+    oa_status?: string | null;
+}
+export interface OpenAccessLocation {
+    pdf_url?: string | null;
+    landing_page_url?: string | null;
+    is_oa?: boolean;
+    license?: string | null;
+    version?: string | null;
 }
 export interface Authorship {
     author?: {
@@ -44,6 +64,7 @@ export interface PrimaryLocation {
     source?: {
         display_name?: string;
     };
+    pdf_url?: string | null;
 }
 export interface Keyword {
     display_name?: string;
@@ -55,11 +76,21 @@ export interface OpenAlexResponse<T> {
     };
 }
 /**
- * Options for HTTP fetch with retry/timeout
+ * Options for HTTP fetch with retry/timeout.
  */
 export interface FetchOptions {
     timeoutMs?: number;
     retries?: number;
     signal?: AbortSignal;
+}
+/**
+ * Result of PDF processing for a single publication.
+ */
+export interface PdfProcessResult {
+    pdfUrl: string | null;
+    abstractPage: number | null;
+    screenshotPath: string | null;
+    skipped: boolean;
+    reason?: string;
 }
 //# sourceMappingURL=types.d.ts.map
