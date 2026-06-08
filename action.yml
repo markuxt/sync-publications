@@ -16,6 +16,14 @@ inputs:
     description: 'Path to content directory (default: src)'
     required: false
     default: 'src'
+  members_dir:
+    description: >
+      Path to members directory. Defaults to <content_dir>/members.
+      Set this if your members live under a different folder
+      (e.g. content/people). Both relative (to repo root) and absolute
+      paths work.
+    required: false
+    default: ''
 
 outputs:
   new_publications_count:

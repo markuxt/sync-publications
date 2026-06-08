@@ -50,6 +50,7 @@ import { filterDuplicates, deduplicatePending } from './workers/deduplicator.js'
 const ROR_ID = process.env.INPUT_ROR_ID || process.env.ROR_ID || ''
 const CONTACT_EMAIL = process.env.INPUT_CONTACT_EMAIL || process.env.CONTACT_EMAIL || ''
 const CONTENT_DIR = process.env.INPUT_CONTENT_DIR || process.env.CONTENT_DIR || 'src'
+const MEMBERS_DIR_INPUT = process.env.INPUT_MEMBERS_DIR || process.env.MEMBERS_DIR || ''
 const GITHUB_OUTPUT = process.env.GITHUB_OUTPUT || ''
 
 if (!ROR_ID) {
@@ -63,7 +64,12 @@ if (!CONTACT_EMAIL) {
 }
 
 const PUBLICATIONS_DIR = join(CONTENT_DIR, 'publications')
-const MEMBERS_DIR = join(CONTENT_DIR, 'members')
+// MEMBERS_DIR is where we scan for member markdown files with ORCIDs.
+// Defaults to <content_dir>/members; can be overridden via env for repos
+// that use a different layout (e.g. team/, people/, authors/).
+const MEMBERS_DIR = MEMBERS_DIR_INPUT
+  ? (MEMBERS_DIR_INPUT.startsWith('/') ? MEMBERS_DIR_INPUT : join(process.cwd(), MEMBERS_DIR_INPUT))
+  : join(CONTENT_DIR, 'members')
 
 // Initialize GitHub output (no-op locally when GITHUB_OUTPUT is empty)
 initGitHubOutput(GITHUB_OUTPUT)
@@ -109,6 +115,7 @@ async function main() {
   console.log(`[markuxt-sync-publications] Starting...`)
   console.log(`[markuxt-sync-publications] ROR ID: ${ROR_ID}`)
   console.log(`[markuxt-sync-publications] Content dir: ${CONTENT_DIR}`)
+  console.log(`[markuxt-sync-publications] Members dir: ${MEMBERS_DIR}`)
 
   // 1. Resolve institution OpenAlex ID
   const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL)
