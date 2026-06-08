@@ -1,9 +1,18 @@
 {
     "cSpell.words": [
         "color",
+        "dedup",
+        "deduplicator",
+        "frontmatter",
+        "Hangul",
         "Jaccard",
+        "markuxt",
         "openalex",
         "orcid",
-        "unpdf"
+        "pdftoppm",
+        "poppler",
+        "slugified",
+        "unpdf",
+        "vars"
     ]
 }
