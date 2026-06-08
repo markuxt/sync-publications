@@ -7,10 +7,14 @@
 # `pnpm dev` (tsx) — no build step required.
 #
 # Usage:
-#   ./test-local.sh
-#   ./test-local.sh --build    # run dist/index.js instead (compiled output)
+#   ./scripts/test-local.sh
+#   ./scripts/test-local.sh --build    # run dist/index.js instead (compiled output)
 
 set -e
+
+# Always run from the repo root so relative paths (.env.development, dist/)
+# resolve correctly regardless of where this script is invoked from.
+cd "$(dirname "$0")/.."
 
 echo "🚀 Sync Publications from OpenAlex — Local Test"
 echo "================================================"
@@ -44,23 +48,23 @@ if [ -z "$CONTACT_EMAIL" ]; then
   echo "❌ CONTACT_EMAIL is not set in $ENV_FILE"
   exit 1
 fi
-if [ -z "$CONTENT_DIR" ]; then
-  echo "⚠️  CONTENT_DIR not set, using default 'src'"
-  export CONTENT_DIR="src"
+if [ -z "$PUBLICATIONS_DIR" ]; then
+  echo "⚠️  PUBLICATIONS_DIR not set, using default 'src/publications'"
+  export PUBLICATIONS_DIR="src/publications"
 fi
 
 echo ""
 echo "Configuration:"
 echo "  ROR ID:      ${ROR_ID}"
 echo "  Contact:     ${CONTACT_EMAIL}"
-echo "  Content dir: ${CONTENT_DIR}"
-echo "  Members dir: ${MEMBERS_DIR:-<content_dir>/members}"
+echo "  Publications dir: ${PUBLICATIONS_DIR}"
+echo "  Members dir: ${MEMBERS_DIR:-src/members}"
 echo ""
 
 # Map "bare" env vars to the INPUT_* convention the action reads.
 export INPUT_ROR_ID="${ROR_ID}"
 export INPUT_CONTACT_EMAIL="${CONTACT_EMAIL}"
-export INPUT_CONTENT_DIR="${CONTENT_DIR}"
+export INPUT_PUBLICATIONS_DIR="${PUBLICATIONS_DIR}"
 export INPUT_MEMBERS_DIR="${MEMBERS_DIR:-}"
 export GITHUB_OUTPUT="${GITHUB_OUTPUT:-}"
 
@@ -79,4 +83,4 @@ fi
 
 echo ""
 echo "✅ Test completed."
-echo "Check '${CONTENT_DIR}/publications/' for generated files."
+echo "Check '${PUBLICATIONS_DIR}/' for generated files."

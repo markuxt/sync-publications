@@ -1,12 +1,10 @@
-#!/usr/bin/env -S npx tsx
-
 /**
  * markuxt-sync-publications
  *
  * GitHub Action to sync publications from OpenAlex based on member ORCIDs.
  * Fetches publications for all members with ORCID, deduplicates against
  * existing content, and writes new markdown files to
- * <content_dir>/publications/<year>/<openalex_id>/index.md
+ * <publications_dir>/<year>/<openalex_id>/index.md
  *
  * Usage:
  *   - GitHub Action (see action.yml) — INPUT_* env vars are set automatically.
@@ -55,8 +53,8 @@ import { filterDuplicates, deduplicatePending } from './workers/deduplicator.js'
 
 const ROR_ID = process.env.INPUT_ROR_ID || process.env.ROR_ID || ''
 const CONTACT_EMAIL = process.env.INPUT_CONTACT_EMAIL || process.env.CONTACT_EMAIL || ''
-const CONTENT_DIR = process.env.INPUT_CONTENT_DIR || process.env.CONTENT_DIR || 'src'
 const MEMBERS_DIR_INPUT = process.env.INPUT_MEMBERS_DIR || process.env.MEMBERS_DIR || ''
+const PUBLICATIONS_DIR_INPUT = process.env.INPUT_PUBLICATIONS_DIR || process.env.PUBLICATIONS_DIR || ''
 const GITHUB_OUTPUT = process.env.GITHUB_OUTPUT || ''
 
 if (!ROR_ID) {
@@ -69,13 +67,16 @@ if (!CONTACT_EMAIL) {
   process.exit(1)
 }
 
-const PUBLICATIONS_DIR = join(CONTENT_DIR, 'publications')
-// MEMBERS_DIR is where we scan for member markdown files with ORCIDs.
-// Defaults to <content_dir>/members; can be overridden via env for repos
-// that use a different layout (e.g. team/, people/, authors/).
-const MEMBERS_DIR = MEMBERS_DIR_INPUT
-  ? (MEMBERS_DIR_INPUT.startsWith('/') ? MEMBERS_DIR_INPUT : join(process.cwd(), MEMBERS_DIR_INPUT))
-  : join(CONTENT_DIR, 'members')
+// MEMBERS_DIR: scanned for member markdown files with ORCIDs. Defaults to
+// src/members; override via env for repos that use a different layout
+// (e.g. team/, people/, authors/). Relative paths resolve against the repo
+// root; absolute paths pass through.
+const MEMBERS_DIR = MEMBERS_DIR_INPUT || 'src/members'
+
+// PUBLICATIONS_DIR: where generated publication markdown + screenshots are
+// written. Defaults to src/publications. Decoupled from MEMBERS_DIR so the
+// two can live under different roots.
+const PUBLICATIONS_DIR = PUBLICATIONS_DIR_INPUT || 'src/publications'
 
 // Initialize GitHub output (no-op locally when GITHUB_OUTPUT is empty)
 initGitHubOutput(GITHUB_OUTPUT)
@@ -120,7 +121,7 @@ function buildMarkdown(pub: PendingPublication): string {
 async function main() {
   console.log(`[markuxt-sync-publications] Starting...`)
   console.log(`[markuxt-sync-publications] ROR ID: ${ROR_ID}`)
-  console.log(`[markuxt-sync-publications] Content dir: ${CONTENT_DIR}`)
+  console.log(`[markuxt-sync-publications] Publications dir: ${PUBLICATIONS_DIR}`)
   console.log(`[markuxt-sync-publications] Members dir: ${MEMBERS_DIR}`)
 
   // 1. Resolve institution OpenAlex ID
@@ -182,8 +183,8 @@ async function main() {
   // 7. Write markdown files
   //
   // Layout (flat per year, no per-paper subdirectory):
-  //   <content_dir>/publications/<year>/<title-slug>.md
-  //   <content_dir>/publications/<year>/<title-slug>.png   (when OA PDF screenshot rendered)
+  //   <publications_dir>/<year>/<title-slug>.md
+  //   <publications_dir>/<year>/<title-slug>.png   (when OA PDF screenshot rendered)
   //
   // The slug is derived from the paper title via slugify(); empty / colliding
   // titles fall back to the OpenAlex ID (see src/utils/slugify.ts).
@@ -210,7 +211,7 @@ async function main() {
     //     metadata we have. We only run this for OA papers with a PDF URL.
     if (pub.pdfUrl && !pub.hidden) {
       try {
-        const relativeYearDir = join(CONTENT_DIR, 'publications', yearKey)
+        const relativeYearDir = join(PUBLICATIONS_DIR, yearKey)
         const result = await processPdf(pub, yearDir, relativeYearDir, stem)
         pub.pdfUrl = result.pdfUrl
         pub.abstractPage = result.abstractPage

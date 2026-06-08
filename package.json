@@ -2,18 +2,20 @@
   "name": "sync-publications-action",
   "version": "1.0.0",
   "description": "GitHub Action to sync publications from OpenAlex based on member ORCIDs",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
   "type": "module",
   "scripts": {
     "dev": "tsx src/index.ts",
-    "start": "node dist/index.js",
-    "build": "tsc",
-    "watch": "tsc --watch",
+    "start": "node dist/index.cjs",
+    "clean": "rm -rf dist",
+    "build": "rm -rf dist && esbuild src/index.ts --bundle --platform=node --format=cjs --target=node24 --outfile=dist/index.cjs",
+    "watch": "esbuild src/index.ts --bundle --platform=node --format=cjs --target=node24 --outfile=dist/index.cjs --watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "echo \"Linting not configured yet\" && exit 0",
-    "format": "echo \"Formatting not configured yet\" && exit 0"
+    "format": "echo \"Formatting not configured yet\" && exit 0",
+    "type-check": "tsc --noEmit"
   },
   "keywords": [
     "github-action",
@@ -35,6 +37,7 @@
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@vitest/coverage-v8": "^4.1.8",
+    "esbuild": "^0.28.0",
     "tsx": "^4.19.0",
     "typescript": "^5.7.3",
     "vitest": "^4.1.8"
@@ -44,6 +47,6 @@
     "url": "git+https://github.com/markuxt/sync-publications.git"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=24.0.0"
   }
 }

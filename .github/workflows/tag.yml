@@ -1,0 +1,82 @@
+name: Tag
+
+# Cut a release tag. Manually triggered with a version input (e.g. 1.2.0).
+# Rebuilds dist/, bumps package.json, commits both, tags v<version>, pushes,
+# then fast-forwards develop to match main.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to tag (e.g. 1.2.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  version-and-tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm run type-check
+
+      - name: Build dist/
+        run: pnpm build
+
+      - name: Bump version in package.json
+        run: |
+          VERSION="${{ inputs.version }}"
+          VERSION="${VERSION#v}"   # strip leading 'v' if provided
+          export VERSION
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          node -e "
+            const fs = require('fs');
+            const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            pkg.version = process.env.VERSION;
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Commit dist and package.json
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dist/ package.json
+          git commit -m "chore: release v${VERSION}"
+
+      - name: Create and push tag
+        run: |
+          TAG="v${VERSION}"
+          git tag -a "$TAG" -m "Release $TAG"
+          git push origin HEAD:main --follow-tags
+
+      - name: Sync develop with main
+        run: |
+          git fetch origin develop || true
+          if git show-ref --verify --quiet refs/remotes/origin/develop; then
+            git checkout develop
+            if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+              git merge --ff-only origin/main && git push origin develop
+            fi
+          else
+            git checkout -b develop
+            git push origin develop
+          fi

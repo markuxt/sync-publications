@@ -1,0 +1,59 @@
+name: Build
+
+# Rebuilds the committed dist/ (loaded by the node24 runtime via action.yml)
+# whenever src/, deps, or the toolchain change on main. Mirrors the bun-based
+# build.yml from github-stats-enhanced, ported to pnpm + tsc.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "src/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "tsconfig.json"
+      - ".github/workflows/build.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Type check
+        run: pnpm run type-check
+
+      - name: Build dist/
+        run: pnpm build
+
+      - name: Commit dist/ if changed
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add dist/
+          if git diff --cached --quiet; then
+            echo "No changes to dist/"
+          else
+            git commit -m "chore: rebuild dist"
+            git push origin HEAD:main
+          fi

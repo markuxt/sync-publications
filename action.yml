@@ -1,5 +1,5 @@
 name: 'Sync Publications from OpenAlex'
-description: 'Fetches publications from OpenAlex based on member ORCIDs and syncs to content directory'
+description: 'Fetches publications from OpenAlex based on member ORCIDs and syncs them to your publications directory'
 
 branding:
   icon: "activity"
@@ -12,15 +12,20 @@ inputs:
   contact_email:
     description: 'Contact email for OpenAlex API requests'
     required: true
-  content_dir:
-    description: 'Path to content directory (default: src)'
-    required: false
-    default: 'src'
   members_dir:
     description: >
-      Path to members directory. Defaults to <content_dir>/members.
-      Set this if your members live under a different folder
-      (e.g. content/people). Both relative (to repo root) and absolute
+      Path to the members directory, where member markdown with ORCIDs is
+      scanned. Defaults to src/members. Set this if your members live under
+      a different folder (e.g. src/people). Both relative (to repo root)
+      and absolute paths work.
+    required: false
+    default: ''
+  publications_dir:
+    description: >
+      Path to the publications directory, where generated publication
+      markdown and screenshots are written. Defaults to src/publications.
+      Independent of members_dir, so members and publications can live
+      under different roots. Both relative (to repo root) and absolute
       paths work.
     required: false
     default: ''
@@ -32,5 +37,5 @@ outputs:
     description: 'List of new publication file paths'
 
 runs:
-  using: 'node20'
-  main: 'dist/index.js'
+  using: 'node24'
+  main: 'dist/index.cjs'

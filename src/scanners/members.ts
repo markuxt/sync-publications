@@ -1,7 +1,7 @@
 /**
  * Scan members with ORCID from content directory.
  *
- * Member markdown files live under `<content_dir>/members` (any depth) and
+ * Member markdown files live under `<members_dir>` (default `src/members`, any depth) and
  * must have an `orcid` field in their YAML frontmatter to be picked up.
  * Members with `_hidden: true` are skipped.
  *

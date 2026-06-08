@@ -1,0 +1,87 @@
+# Copy this file to .github/workflows/sync-publications.yml in your site repo.
+#
+# This workflow consumes the markuxt/sync-publications GitHub Action: it scans
+# <members_dir>/*.md for ORCIDs, fetches matching works from OpenAlex
+# (filtered by your institution's ROR), and writes new markdown under
+# <publications_dir>/<year>/. New files are committed back to the
+# triggering branch.
+#
+# Prerequisites — add these repository secrets:
+#   OPENALEX_ROR_ID        Your institution ROR, e.g. https://ror.org/03y4dt428
+#                          (not secret — can be inlined if you prefer)
+#   OPENALEX_CONTACT_EMAIL Email for OpenAlex's polite-pool policy
+#
+# The ubuntu runner ships with poppler (pdftoppm), so abstract-page PNGs render
+# out of the box. No extra setup needed.
+
+name: Sync Publications
+
+on:
+  schedule:
+    - cron: "17 0 * * 0" # weekly, Sunday ~00:17 UTC
+  push:
+    branches:
+      - main
+    paths:
+      - "src/members/**"
+      - ".github/workflows/sync-publications.yml"
+  workflow_dispatch:
+    inputs:
+      members_dir:
+        description: "Members directory (default: src/members)"
+        required: false
+        default: "src/members"
+      publications_dir:
+        description: "Publications directory (default: src/publications)"
+        required: false
+        default: "src/publications"
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync publications from OpenAlex
+        id: sync
+        uses: markuxt/sync-publications@v1
+        with:
+          ror_id: ${{ secrets.OPENALEX_ROR_ID }}
+          contact_email: ${{ secrets.OPENALEX_CONTACT_EMAIL }}
+          members_dir: ${{ inputs.members_dir || 'src/members' }}
+          publications_dir: ${{ inputs.publications_dir || 'src/publications' }}
+
+      - name: Commit new publications
+        env:
+          PUBLICATIONS_DIR: ${{ inputs.publications_dir || 'src/publications' }}
+          COUNT: ${{ steps.sync.outputs.new_publications_count }}
+          FILES: ${{ steps.sync.outputs.new_publications_files }}
+        run: |
+          if [ -z "$FILES" ] || [ "$COUNT" = "0" ]; then
+            echo "No new publications to commit."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "${PUBLICATIONS_DIR}/"
+          git commit -m "chore: sync ${COUNT} publication(s) from OpenAlex"
+          git push
+
+      - name: Summary
+        if: always()
+        env:
+          COUNT: ${{ steps.sync.outputs.new_publications_count }}
+          FILES: ${{ steps.sync.outputs.new_publications_files }}
+        run: |
+          echo "## 📚 Sync Publications Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **New publications**: ${COUNT}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Files" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${FILES}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
