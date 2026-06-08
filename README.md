@@ -1,32 +1,28 @@
 # Sync Publications from OpenAlex
 
-GitHub Action that fetches publications from [OpenAlex](https://openalex.org)
-based on member ORCIDs and writes them to your content directory as
-markdown. Each generated publication file includes the title, authors,
-ORCIDs, year, DOI, venue, keywords, the reconstructed abstract, a
-best-effort PDF link, and — when an open-access PDF is available — a
-screenshot of the page containing the abstract.
+一个 GitHub Action，根据成员的 ORCID 从 [OpenAlex](https://openalex.org)
+抓取论文并以 markdown 形式写入你的 content 目录。每篇生成的论文文件包含
+标题、作者、ORCID、年份、DOI、期刊/会议、关键词、重建后的摘要、PDF
+链接，以及——当开放获取的 PDF 可用时——摘要所在页的截图。
 
-## Features
+## 特性
 
-- **ORCID-driven**: scans your existing member markdown for ORCIDs and
-  fetches works per author from OpenAlex.
-- **Institution-filtered**: uses your ROR ID so only papers affiliated
-  with your institution are pulled.
-- **Rich output**: frontmatter with title / authors / ORCIDs / year / DOI
-  / venue / keywords / `pdf_url` / `abstract_page` / `abstract_screenshot`,
-  plus the reconstructed abstract as the body text.
-- **Abstract-page screenshot**: when an open-access PDF is available the
-  action downloads it, locates the page containing the abstract, and
-  renders a high-resolution PNG (≥ 1000 px shortest side).
-- **Smart deduplication**: OpenAlex ID + normalised DOI + Jaccard title
-  similarity with author overlap; CJK-safe tokenisation.
-- **Local-first**: same code runs in GitHub Actions and on your laptop
-  via `.env.development`.
+- **ORCID 驱动**：扫描已有的成员 markdown 中的 ORCID，按作者从
+  OpenAlex 拉取作品。
+- **机构过滤**：通过 ROR ID 只拉取与本机构相关的论文。
+- **丰富输出**：frontmatter 包含 title / authors / ORCIDs / year / DOI
+  / venue / keywords / `pdf_url` / `abstract_page` /
+  `abstract_screenshot`，正文是重建后的摘要。
+- **摘要页截图**：当有开放获取 PDF 时，自动下载、定位含摘要的页码、
+  渲染高分辨率 PNG（最短边 ≥ 1000 px）。
+- **智能去重**：OpenAlex ID + 归一化 DOI + Jaccard 标题相似度 + 作者
+  重叠度；CJK 安全的分词器。
+- **本地优先**：同一份代码既能跑在 GitHub Actions 里，也能通过
+  `.env.development` 跑在本地。
 
-## Quick start
+## 快速开始
 
-### As a GitHub Action
+### 作为 GitHub Action
 
 ```yaml
 - uses: markuxt/sync-publications@v1
@@ -36,63 +32,61 @@ screenshot of the page containing the abstract.
     content_dir: 'src'
 ```
 
-See the [Complete workflow example](#complete-workflow-example) below.
+参见下方的[完整 workflow 示例](#完整-workflow-示例)。
 
-### Locally
+### 本地运行
 
 ```bash
 pnpm install
 cp .env.example .env.development
-# edit .env.development — set ROR_ID and CONTACT_EMAIL
-pnpm dev          # runs via tsx (no build step)
-# or:
-./test-local.sh           # preferred — wraps pnpm dev
-./test-local.sh --build   # run compiled dist/index.js
+# 编辑 .env.development — 填入 ROR_ID 和 CONTACT_EMAIL
+pnpm dev          # 通过 tsx 运行（无需 build）
+# 或：
+./test-local.sh           # 推荐 —— 等价于 pnpm dev
+./test-local.sh --build   # 跑编译后的 dist/index.js
 ```
 
-You can also override any env var on the CLI:
+也可以在命令行临时覆盖任何环境变量：
 
 ```bash
 ROR_ID=https://ror.org/other pnpm dev
 ```
 
-## Inputs
+## 输入参数
 
-### `ror_id` (required)
+### `ror_id`（必填）
 
-ROR ID of your institution. Find yours at <https://ror.org>.
+机构的 ROR ID。可以在 <https://ror.org> 查询。
 
-### `contact_email` (required)
+### `contact_email`（必填）
 
-Contact email for OpenAlex's polite-pool policy.
+OpenAlex polite-pool 策略要求的联系邮箱。
 
-### `content_dir` (optional, default `src`)
+### `content_dir`（可选，默认 `src`）
 
-Path (relative to repo root or absolute) where members and publications
-live. Member markdown goes in `<content_dir>/members/`, publications are
-written to `<content_dir>/publications/`.
+存放成员和论文的目录（相对仓库根目录或绝对路径）。成员 markdown 在
+`<content_dir>/members/`，论文产物写到 `<content_dir>/publications/`。
 
-### `members_dir` (optional)
+### `members_dir`（可选）
 
-Override the members directory if your layout differs (e.g.
-`content/people`). Both relative (resolved against the repo root) and
-absolute paths work. Defaults to `<content_dir>/members`.
+如果你的目录结构不同（例如 `content/people`），可以覆盖默认的成员
+目录。相对路径（相对仓库根目录）和绝对路径都支持。默认是
+`<content_dir>/members`。
 
-## Outputs
+## 输出
 
 ### `new_publications_count`
 
-Number of new publication files written this run.
+本次运行写入的论文文件数。
 
 ### `new_publications_files`
 
-Newline-separated list of the file paths (delivered via the multi-line
-heredoc format so nothing is truncated).
+新文件路径列表，换行分隔（通过多行 heredoc 格式输出，不会被截断）。
 
-## Member file format
+## 成员文件格式
 
-Member markdown files live under `<content_dir>/members/**/*.md` (or
-`members_dir` if you overrode it). They must have an `orcid` field:
+成员 markdown 文件位于 `<content_dir>/members/**/*.md`（或你覆盖的
+`members_dir`）。必须包含 `orcid` 字段：
 
 ```yaml
 ---
@@ -101,20 +95,20 @@ orcid: 0000-0001-2345-6789
 ---
 ```
 
-Members with `_hidden: true` are skipped. ORCIDs are validated using the
-ISO 7064 11-2 checksum; invalid ORCIDs are skipped with a warning so a
-typo in one file can't poison the whole sync.
+带 `_hidden: true` 的成员会被跳过。ORCID 会通过 ISO 7064 11-2 校验码
+校验，非法 ORCID 会带 warning 跳过，单个文件的拼写错误不会污染整轮
+同步。
 
-## Publication file format
+## 论文文件格式
 
-Generated publications are written to:
+生成的论文文件写到：
 
 ```
 <content_dir>/publications/<year>/<openalex_id>/index.md
-<content_dir>/publications/<year>/<openalex_id>/abstract-page.png   (when an OA PDF was processed)
+<content_dir>/publications/<year>/<openalex_id>/abstract-page.png   （处理了 OA PDF 时才有）
 ```
 
-Each `index.md` looks like:
+每篇 `index.md` 长这样：
 
 ```yaml
 ---
@@ -137,104 +131,101 @@ keywords:
   - robotics
 ---
 
-Abstract text reconstructed from OpenAlex's inverted index...
+从 OpenAlex 倒排索引重建出来的摘要文本……
 ```
 
-### Abstract-page screenshot requirements
+### 摘要页截图说明
 
-- Rendered at 200 DPI via `pdftoppm` (poppler). At A4 that's ~1654 px on
-  the shortest side — comfortably above the 1000 px minimum.
-- **GitHub Actions runners** have `pdftoppm` preinstalled.
-- **Locally on macOS** install it once: `brew install poppler`.
-- If `pdftoppm` is unavailable the run still completes — the markdown is
-  written with `pdf_url` and `abstract_page` populated but
-  `abstract_screenshot` empty.
+- 通过 `pdftoppm`（poppler）以 200 DPI 渲染。A4 纸张下最短边约 1654
+  px —— 远超 1000 px 下限。
+- **GitHub Actions runner** 自带 `pdftoppm`。
+- **macOS 本地** 需要安装一次：`brew install poppler`。
+- 如果 `pdftoppm` 不可用，运行不会中断 —— markdown 仍会写出，只是
+  填充了 `pdf_url` 和 `abstract_page` 而 `abstract_screenshot` 留空。
 
-## Deduplication
+## 去重策略
 
-Three layered checks (any match ⇒ skip):
+三层叠加检查（任意命中 ⇒ 跳过）：
 
-1. **OpenAlex ID** (with or without leading `W`).
-2. **Normalised DOI** (`https://doi.org/` / `https://dx.doi.org/` /
-   `doi:` all collapse to lowercase bare form).
-3. **Heuristic similarity**: years within 1, title Jaccard ≥ 0.85,
-   author overlap ≥ 0.5.
+1. **OpenAlex ID**（带不带前导 `W` 都行）。
+2. **归一化 DOI**（`https://doi.org/` / `https://dx.doi.org/` /
+   `doi:` 都折叠成小写裸 DOI）。
+3. **相似度启发式**：年份差 ≤ 1、标题 Jaccard ≥ 0.85、作者重叠 ≥ 0.5。
 
-CJK / Hangul / Kana titles are tokenised by character so non-Latin
-papers don't collapse to an empty token set (which previously caused
-false-positive dedup).
+CJK / Hangul / Kana 标题按单字符切分，避免非拉丁文论文被分词成空集
+（之前的实现因此误判成重复）。
 
-Within the pending batch, older versions of the same paper are marked
-`_hidden: true`; only the newest visible copy is kept.
+同一批 pending 内，同一篇论文的旧版本会被打上 `_hidden: true`；只
+保留最新版本可见。
 
-## Project layout
+## 项目结构
 
 ```
 sync-publications/
 ├── src/
-│   ├── index.ts              # Main entry — reads env, orchestrates the sync
-│   ├── types.ts              # Shared TypeScript types
+│   ├── index.ts              # 主入口 —— 读环境变量，编排整个同步流程
+│   ├── types.ts              # 共享 TypeScript 类型
 │   ├── utils/
-│   │   ├── abstract.ts       # Reconstruct abstract from inverted index
-│   │   ├── deduplication.ts  # Tokenisation, Jaccard, author overlap
-│   │   ├── doi.ts            # DOI normalisation
-│   │   ├── env.ts            # .env / .env.<NODE_ENV> loading
-│   │   ├── github.ts         # GITHUB_OUTPUT writing (heredoc-aware)
-│   │   ├── glob.ts           # Markdown file discovery
-│   │   ├── http.ts           # fetch with timeout + backoff retry
-│   │   ├── openalex.ts       # OpenAlex API client
-│   │   ├── pdf.ts            # PDF download / text extraction / screenshot
-│   │   ├── formatters.ts     # Author name / ORCID formatting
-│   │   └── yaml.ts           # YAML frontmatter parse + stringify
+│   │   ├── abstract.ts       # 从倒排索引重建摘要
+│   │   ├── deduplication.ts  # 分词、Jaccard、作者重叠
+│   │   ├── doi.ts            # DOI 归一化
+│   │   ├── env.ts            # 加载 .env / .env.<NODE_ENV>
+│   │   ├── github.ts         # 写 GITHUB_OUTPUT（支持 heredoc）
+│   │   ├── glob.ts           # markdown 文件发现
+│   │   ├── http.ts           # fetch + 超时 + 退避重试
+│   │   ├── openalex.ts       # OpenAlex API 客户端
+│   │   ├── pdf.ts            # PDF 下载 / 文本提取 / 截图
+│   │   ├── formatters.ts     # 作者名 / ORCID 格式化
+│   │   └── yaml.ts           # YAML frontmatter 解析 + 序列化
 │   ├── scanners/
-│   │   ├── members.ts        # Scan members for ORCIDs
-│   │   └── publications.ts   # Scan existing publications for dedup
+│   │   ├── members.ts        # 扫描成员的 ORCID
+│   │   └── publications.ts   # 扫描已有论文用于去重
 │   └── workers/
 │       ├── parser.ts         # OpenAlex work → PendingPublication
-│       └── deduplicator.ts   # filter + dedup pending list
-├── tests/                    # vitest test suite (140 tests)
-├── action.yml                # GitHub Action metadata
-├── dist/                     # Compiled bundle the node20 runtime loads
+│       └── deduplicator.ts   # 过滤 + 去重 pending 列表
+├── tests/                    # vitest 测试套件（140 个测试）
+├── action.yml                # GitHub Action 元数据
+├── dist/                     # node20 运行时加载的编译产物
 └── package.json
 ```
 
-## Development
+## 开发
 
-### Prerequisites
+### 前置要求
 
 - Node.js ≥ 20.0.0
-- pnpm (recommended) or npm
-- (optional, for local screenshots) `poppler`: `brew install poppler`
+- pnpm（推荐）或 npm
+- （可选，本地需要截图时）`poppler`：`brew install poppler`
 
-### Scripts
+### 脚本
 
 ```bash
-pnpm install             # install deps
-pnpm dev                 # run via tsx (no build step)
-pnpm build               # compile src/ → dist/
-pnpm start               # run compiled dist/index.js
-pnpm test                # run vitest suite
-pnpm test:watch          # interactive watch mode
-pnpm test:coverage       # vitest with v8 coverage
-./test-local.sh          # equivalent to pnpm dev with .env.development loaded
-./test-local.sh --build  # same but using dist/index.js
+pnpm install             # 安装依赖
+pnpm dev                 # 通过 tsx 运行（无需 build）
+pnpm build               # 编译 src/ → dist/
+pnpm start               # 跑编译后的 dist/index.js
+pnpm test                # 跑 vitest 测试套件
+pnpm test:watch          # 交互式 watch 模式
+pnpm test:coverage       # vitest + v8 覆盖率
+./test-local.sh          # 等价于 pnpm dev，自动加载 .env.development
+./test-local.sh --build  # 同上，但跑的是 dist/index.js
 ```
 
-### Environment files
+### 环境变量文件
 
-- `.env.example` — committed template; documents every variable.
-- `.env.development` — gitignored; this is what `pnpm dev` and
-  `./test-local.sh` load automatically.
-- `.env` — also accepted (lower priority than `.env.development`).
+- `.env.example` —— 提交到仓库的模板，列出所有变量。
+- `.env.development` —— gitignored；`pnpm dev` 和 `./test-local.sh`
+  自动加载这个文件。
+- `.env` —— 也支持（优先级低于 `.env.development`）。
 
-Existing `process.env` values always win, so
-`ROR_ID=... pnpm dev` on the CLI beats `.env.development`.
+已存在的 `process.env` 值永远优先，所以命令行里写
+`ROR_ID=... pnpm dev` 会覆盖 `.env.development` 的值。
 
-### Building & releasing
+### 构建与发布
 
-`dist/` is intentionally tracked in git. GitHub Actions' node20 runtime
-loads `dist/index.js` directly (see `action.yml`), so any PR that
-changes `src/` must also rebuild `dist/` before merging.
+`dist/` 是有意提交到仓库的。GitHub Actions 的 node20 运行时直接加载
+`dist/index.js`（见 `action.yml`），所以任何改动 `src/` 的 PR 在
+合并前都必须重新构建 `dist/`。
 
 ```bash
 pnpm build
@@ -242,7 +233,7 @@ git add dist/
 git commit -m 'build: rebuild dist'
 ```
 
-## Complete workflow example
+## 完整 workflow 示例
 
 ```yaml
 name: Sync Publications
@@ -250,7 +241,7 @@ name: Sync Publications
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 0'  # Weekly on Sundays
+    - cron: '0 0 * * 0'  # 每周日凌晨
 
 jobs:
   sync:
@@ -284,7 +275,8 @@ jobs:
 
 Apache-2.0
 
-## Support
+## 支持
 
-For issues and questions, please use
-[GitHub Issues](https://github.com/markuxt/sync-publications/issues).
+如遇问题请到
+[GitHub Issues](https://github.com/markuxt/sync-publications/issues)
+反馈。
