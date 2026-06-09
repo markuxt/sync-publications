@@ -6,7 +6,7 @@
  * Reconstruct abstract text from inverted index format
  * OpenAlex stores abstracts as word -> positions mapping
  */
-export function reconstructAbstract(invertedIndex: Record<string, number[]> | null): string | null {
+export function reconstructAbstract(invertedIndex: Record<string, number[]> | null | undefined): string | null {
   if (!invertedIndex) return null
 
   const entries: [string, number][] = []

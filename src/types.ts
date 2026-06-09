@@ -78,7 +78,8 @@ export interface OpenAccessLocation {
 export interface Authorship {
   author?: {
     display_name?: string
-    orcid?: string
+    /** OpenAlex returns null for authors with no ORCID. */
+    orcid?: string | null
   }
 }
 

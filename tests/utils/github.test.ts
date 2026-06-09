@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { readFileSync, writeFileSync, unlinkSync, existsSync } from 'fs'
+import { readFileSync, unlinkSync, existsSync } from 'fs'
 import { join } from 'path'
 import { initGitHubOutput, setOutput, _resetGitHubOutputPath } from '../../src/utils/github.js'
 import { tmpdir } from 'os'

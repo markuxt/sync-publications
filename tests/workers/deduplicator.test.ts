@@ -21,6 +21,15 @@ function makePub(overrides: Partial<PendingPublication>): PendingPublication {
   }
 }
 
+function makeExisting(overrides: Partial<ExistingPublication>): ExistingPublication {
+  return {
+    file: '/tmp/test.md',
+    hasOpenalexId: false,
+    hasAuthorsOrcid: false,
+    ...overrides
+  }
+}
+
 describe('filterDuplicates', () => {
   it('returns the pending publication when no existing matches', () => {
     const pending = new Map([['W1', makePub({ openalexId: 'W1' })]])
@@ -31,14 +40,14 @@ describe('filterDuplicates', () => {
 
   it('skips when OpenAlex ID matches existing', () => {
     const pending = new Map([['W1', makePub({ openalexId: 'W1' })]])
-    const existing: ExistingPublication[] = [{ openalexId: '1' }]
+    const existing: ExistingPublication[] = [makeExisting({ openalexId: '1' })]
     const result = filterDuplicates(pending, existing, new Set(['1']), new Set())
     expect(result).toHaveLength(0)
   })
 
   it('skips when DOI matches existing (normalised)', () => {
     const pending = new Map([['W1', makePub({ openalexId: 'W1', doi: 'https://doi.org/10.1000/foo' })]])
-    const existing: ExistingPublication[] = [{ doi: '10.1000/foo' }]
+    const existing: ExistingPublication[] = [makeExisting({ doi: '10.1000/foo' })]
     const result = filterDuplicates(pending, existing, new Set(), new Set(['10.1000/foo']))
     expect(result).toHaveLength(0)
   })
@@ -52,11 +61,11 @@ describe('filterDuplicates', () => {
       authors: ['Doe, J', 'Smith, A'],
       year: 2024
     })]])
-    const existing: ExistingPublication[] = [{
+    const existing: ExistingPublication[] = [makeExisting({
       title: 'Deep Reinforcement Learning Approach Robotic Manipulation Tasks Extended',
       year: 2024,
       authors: ['Doe, J', 'Smith, A']
-    }]
+    })]
     const result = filterDuplicates(pending, existing, new Set(), new Set())
     expect(result).toHaveLength(0)
   })
@@ -68,11 +77,11 @@ describe('filterDuplicates', () => {
       authors: ['Doe, J'],
       year: 2024
     })]])
-    const existing: ExistingPublication[] = [{
+    const existing: ExistingPublication[] = [makeExisting({
       title: 'Recipe Development for French Pastry',
       year: 2024,
       authors: ['Smith, A']
-    }]
+    })]
     const result = filterDuplicates(pending, existing, new Set(), new Set())
     expect(result).toHaveLength(1)
   })

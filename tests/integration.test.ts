@@ -23,7 +23,7 @@ import { scanMembersWithOrcid } from '../src/scanners/members.js'
 import { normalizeDoi } from '../src/utils/doi.js'
 import { yamlStr } from '../src/utils/yaml.js'
 
-import type { PendingPublication } from '../../src/types.js'
+import type { PendingPublication } from '../src/types.js'
 
 function buildMarkdown(pub: PendingPublication): string {
   const lines: string[] = ['---', `_hidden: ${pub.hidden}`]

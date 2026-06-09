@@ -7,9 +7,6 @@ import {
   processPdf,
   _expectedMinShortSide
 } from '../../src/utils/pdf.js'
-import { mkdtempSync, rmSync, existsSync, readdirSync } from 'fs'
-import { join } from 'path'
-import { tmpdir } from 'os'
 import type { OpenAlexWork } from '../../src/types.js'
 
 describe('pickPdfUrl', () => {
