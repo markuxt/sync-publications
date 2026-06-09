@@ -21,6 +21,9 @@ abstract.
   high-resolution PNG is rendered (shortest side ≥ 1000 px).
 - **Smart deduplication**: OpenAlex ID + normalized DOI + Jaccard title
   similarity + author overlap; a CJK-safe tokenizer.
+- **Backfill**: existing publication files missing `openalex_id` and/or
+  `authors_orcid` are looked up on OpenAlex and completed in place, with the
+  body preserved verbatim.
 - **Local-first**: the same code runs in GitHub Actions and locally via
   `.env.development`.
 
@@ -90,6 +93,15 @@ The number of publication files written by this run.
 
 A newline-separated list of new file paths (emitted via a multi-line heredoc
 format so it is never truncated).
+
+### `backfilled_publications_count`
+
+The number of existing publication files that had missing `openalex_id` and/or
+`authors_orcid` filled in during this run.
+
+### `backfilled_publications_files`
+
+A newline-separated list of backfilled file paths.
 
 ## Member file format
 
@@ -180,6 +192,25 @@ preserving the first-seen spelling.
 
 Within the same pending batch, older versions of the same publication are
 marked `_hidden: true`; only the newest version stays visible.
+
+## Backfilling missing fields
+
+When an existing publication file is missing its `openalex_id` and/or
+`authors_orcid` frontmatter (common for files written by hand or by an older
+version of the action), the run looks the work up on OpenAlex and completes
+the fields **in place** — every other frontmatter field and the body are left
+untouched.
+
+Lookup priority: an existing `openalex_id`, then the `doi`, then a title +
+year search. The search fallback is guarded by title Jaccard similarity
+(≥ 0.85) and author overlap (≥ 0.5), so an uncertain match never writes a
+wrong ID. `authors_orcid` is built parallel to the existing `authors` list,
+matching each author by name (unknown authors get `null`).
+
+This runs on every sync and is idempotent — complete files are skipped, so
+there is no ongoing cost after the first run. The count and list of backfilled
+files are exposed via `backfilled_publications_count` /
+`backfilled_publications_files`.
 
 ## Project structure
 

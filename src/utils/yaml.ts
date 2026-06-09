@@ -7,7 +7,7 @@
  * brittle under any user editing.
  */
 
-import { parse as yamlParse, stringify as yamlStringify } from 'yaml'
+import { parse as yamlParse, stringify as yamlStringify, parseDocument } from 'yaml'
 
 /**
  * Parse the YAML frontmatter block from a markdown file.
@@ -43,4 +43,34 @@ export function yamlStr(value: string): string {
  */
 export function stringifyYaml(value: unknown): string {
   return yamlStringify(value)
+}
+
+/**
+ * Surgically update frontmatter fields while preserving everything else.
+ *
+ * Uses the `yaml` package's parseDocument round-trip so untouched keys keep
+ * their original scalar quoting and order (minimal diff). The document body
+ * (everything after the closing `---`) is spliced back byte-for-byte.
+ *
+ * Values may be scalars or arrays; arrays render as block lists, matching
+ * buildMarkdown's output. Returns the content unchanged if it has no
+ * frontmatter block.
+ */
+export function updateFrontmatter(content: string, updates: Record<string, unknown>): string {
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---/)
+  if (!match) return content
+
+  const fmText = match[1]
+  // Body = everything after the closing `---` fence (verbatim).
+  const body = content.slice((match.index ?? 0) + match[0].length)
+  const eol = content.startsWith('---\r\n') ? '\r\n' : '\n'
+
+  const doc = parseDocument(fmText)
+  for (const [key, value] of Object.entries(updates)) {
+    doc.set(key, value)
+  }
+  let newFm = doc.toString({ lineWidth: 0 })
+  if (eol === '\r\n') newFm = newFm.replace(/\n/g, '\r\n')
+
+  return `---${eol}${newFm}${eol}---${body}`
 }

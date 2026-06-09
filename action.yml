@@ -35,6 +35,10 @@ outputs:
     description: 'Number of new publication files added'
   new_publications_files:
     description: 'List of new publication file paths'
+  backfilled_publications_count:
+    description: 'Number of existing publications backfilled with missing openalex_id and/or authors_orcid'
+  backfilled_publications_files:
+    description: 'List of backfilled publication file paths'
 
 runs:
   using: 'node24'

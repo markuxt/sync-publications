@@ -13,6 +13,16 @@ import { fetchWithRetry } from './http.js'
 const OPENALEX_BASE = 'https://api.openalex.org'
 
 /**
+ * Field sets for the works endpoint.
+ *
+ * WORK_FIELDS is the full set needed to build a PendingPublication.
+ * WORK_LOOKUP_FIELDS is a focused set for single-work lookups (backfill):
+ * just the ID plus what's needed for the similarity guard and author ORCIDs.
+ */
+const WORK_FIELDS = 'id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location'
+const WORK_LOOKUP_FIELDS = 'id,title,authorships,publication_year,doi'
+
+/**
  * Fetch from OpenAlex API with mailto + User-Agent (polite pool).
  * Retries automatically on transient failures.
  */
@@ -78,11 +88,9 @@ export async function getWorksForAuthor(
   const works: OpenAlexWork[] = []
   let cursor = '*'
 
-  const fields = 'id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location'
-
   while (true) {
     const data = await oaFetch(
-      `/works?filter=author.id:${encodeURIComponent(authorId)},institution.id:${encodeURIComponent(institutionId)}&per_page=200&cursor=${encodeURIComponent(cursor)}&select=${fields}`,
+      `/works?filter=author.id:${encodeURIComponent(authorId)},institution.id:${encodeURIComponent(institutionId)}&per_page=200&cursor=${encodeURIComponent(cursor)}&select=${WORK_FIELDS}`,
       contactEmail
     ) as OpenAlexResponse<OpenAlexWork> & { meta: { next_cursor: string | null } }
 
@@ -93,4 +101,47 @@ export async function getWorksForAuthor(
   }
 
   return works
+}
+
+/**
+ * Look up a single work by its OpenAlex ID (W… form, with or without leading W).
+ * Returns null if not found.
+ */
+export async function getWorkByOpenalexId(id: string, contactEmail: string): Promise<OpenAlexWork | null> {
+  const digits = id.replace(/^W/, '').trim()
+  if (!digits) return null
+  const data = await oaFetch(
+    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
+    contactEmail
+  ) as OpenAlexResponse<OpenAlexWork>
+  return data.results?.[0] ?? null
+}
+
+/**
+ * Look up a single work by its bare DOI (e.g. "10.3390/polymers14102019").
+ * Returns null if not found.
+ */
+export async function getWorkByDoi(bareDoi: string, contactEmail: string): Promise<OpenAlexWork | null> {
+  if (!bareDoi) return null
+  const data = await oaFetch(
+    `/works?filter=doi:${encodeURIComponent(bareDoi)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
+    contactEmail
+  ) as OpenAlexResponse<OpenAlexWork>
+  return data.results?.[0] ?? null
+}
+
+/**
+ * Best-effort single-work lookup by title + publication year.
+ *
+ * Uses the modern `search=` parameter (`title.search` is deprecated). The
+ * caller MUST verify the result is a genuine match — OpenAlex search is
+ * fuzzy and the top hit may be a different work.
+ */
+export async function searchWorkByTitle(title: string, year: number, contactEmail: string): Promise<OpenAlexWork | null> {
+  if (!title) return null
+  const data = await oaFetch(
+    `/works?search=${encodeURIComponent(title)}&filter=publication_year:${encodeURIComponent(String(year))}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
+    contactEmail
+  ) as OpenAlexResponse<OpenAlexWork>
+  return data.results?.[0] ?? null
 }

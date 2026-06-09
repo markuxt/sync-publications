@@ -43,7 +43,16 @@ export async function scanExistingPublications(
 
     const authors = Array.isArray(fm.authors) ? fm.authors as string[] : undefined
 
-    existing.push({ openalexId, doi: doi ?? undefined, title, year, authors })
+    existing.push({
+      file,
+      openalexId,
+      doi: doi ?? undefined,
+      title,
+      year,
+      authors,
+      hasOpenalexId: typeof fm.openalex_id === 'string' && fm.openalex_id.trim() !== '',
+      hasAuthorsOrcid: Array.isArray(fm.authors_orcid) && fm.authors_orcid.length > 0
+    })
   }
 
   return existing
