@@ -49277,7 +49277,8 @@ function parseYamlFrontmatter(content) {
 }
 function yamlStr(value) {
   if (value === "") return "";
-  const doc = (0, import_yaml.stringify)(value, { defaultStringType: "PLAIN" });
+  const normalized = value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ");
+  const doc = (0, import_yaml.stringify)(normalized, { defaultStringType: "PLAIN" });
   return doc.replace(/\n$/, "");
 }
 function updateFrontmatter(content, updates) {
@@ -52843,7 +52844,14 @@ async function scanExistingPublications(publicationsDir) {
   const existing = [];
   for (const file of files) {
     const content = readFileSync(file, "utf-8");
-    const fm2 = parseYamlFrontmatter(content);
+    let fm2;
+    try {
+      fm2 = parseYamlFrontmatter(content);
+    } catch (error) {
+      const message = error instanceof Error ? error.message.split("\n")[0] : String(error);
+      console.warn(`[publications] Skipping malformed frontmatter in ${file}: ${message}`);
+      continue;
+    }
     if (fm2._hidden === "true" || fm2._hidden === true) continue;
     const openalexId = typeof fm2.openalex_id === "string" ? fm2.openalex_id.replace(/^W/, "") : void 0;
     const doi = normalizeDoi(typeof fm2.doi === "string" ? fm2.doi : null);
