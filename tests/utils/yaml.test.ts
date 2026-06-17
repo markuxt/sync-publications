@@ -63,6 +63,10 @@ describe('yamlStr', () => {
     // a clean `field: ` instead of `field: ""`.
     expect(yamlStr('')).toBe('')
   })
+
+  it('collapses embedded line breaks so inline frontmatter stays valid', () => {
+    expect(yamlStr('Line one\nLine two')).toBe('Line one Line two')
+  })
 })
 
 describe('updateFrontmatter', () => {

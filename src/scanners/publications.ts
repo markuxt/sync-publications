@@ -24,7 +24,15 @@ export async function scanExistingPublications(
 
   for (const file of files) {
     const content = readFileSync(file, 'utf-8')
-    const fm = parseYamlFrontmatter(content)
+    let fm: Record<string, unknown>
+
+    try {
+      fm = parseYamlFrontmatter(content)
+    } catch (error) {
+      const message = error instanceof Error ? error.message.split('\n')[0] : String(error)
+      console.warn(`[publications] Skipping malformed frontmatter in ${file}: ${message}`)
+      continue
+    }
 
     // Skip hidden publications
     if (fm._hidden === 'true' || fm._hidden === true) continue

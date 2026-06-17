@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdirSync, writeFileSync, rmSync } from 'fs'
 import { join } from 'path'
 import { tmpdir } from 'os'
@@ -75,5 +75,26 @@ Body text here.
     writeFileSync(join(dir, '2024', 'W1', 'index.md'), '---\ntitle: T\nyear: 2024\ndoi:\n---\n')
     const pubs = await scanExistingPublications(dir)
     expect(pubs[0].doi).toBeUndefined()
+  })
+
+  it('warns and skips malformed frontmatter instead of aborting the whole scan', async () => {
+    mkdirSync(join(dir, '2024', 'W1'), { recursive: true })
+    mkdirSync(join(dir, '2024', 'W2'), { recursive: true })
+    writeFileSync(
+      join(dir, '2024', 'W1', 'index.md'),
+      '---\n_hidden: false\ntitle: Good Title\nyear: 2024\nopenalex_id: W1\n---\n'
+    )
+    writeFileSync(
+      join(dir, '2024', 'W2', 'index.md'),
+      '---\n_hidden: false\ntitle: Broken Title\ncontinues here\nyear: 2024\nopenalex_id: W2\n---\n'
+    )
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const pubs = await scanExistingPublications(dir)
+
+    expect(pubs).toHaveLength(1)
+    expect(pubs[0]?.openalexId).toBe('1')
+    expect(warn).toHaveBeenCalledOnce()
+    expect(warn.mock.calls[0]?.[0]).toContain('Skipping malformed frontmatter')
   })
 })

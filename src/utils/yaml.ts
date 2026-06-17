@@ -34,7 +34,14 @@ export function parseYamlFrontmatter(content: string): Record<string, unknown> {
  */
 export function yamlStr(value: string): string {
   if (value === '') return ''
-  const doc = yamlStringify(value, { defaultStringType: 'PLAIN' })
+  // Frontmatter fields such as `title:` and `venue:` are emitted inline.
+  // If upstream metadata contains an actual line break, writing it back
+  // verbatim would produce invalid YAML like:
+  //   title: first line
+  //   second line
+  // Collapse line separators to a single space before stringifying.
+  const normalized = value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ')
+  const doc = yamlStringify(normalized, { defaultStringType: 'PLAIN' })
   return doc.replace(/\n$/, '')
 }
 
