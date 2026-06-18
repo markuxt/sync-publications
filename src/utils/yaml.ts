@@ -41,7 +41,12 @@ export function yamlStr(value: string): string {
   //   second line
   // Collapse line separators to a single space before stringifying.
   const normalized = value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, ' ')
-  const doc = yamlStringify(normalized, { defaultStringType: 'PLAIN' })
+  // lineWidth: 0 disables wrapping. Without it, long scalars (e.g. a title
+  // containing ": " that gets quoted) are folded across lines, and when emitted
+  // inline as `title: \u2026` the continuation lands at column 0 \u2014 invalid YAML that
+  // this same parser then rejects on re-scan (breaking idempotency). Matches
+  // updateFrontmatter's toString({ lineWidth: 0 }).
+  const doc = yamlStringify(normalized, { defaultStringType: 'PLAIN', lineWidth: 0 })
   return doc.replace(/\n$/, '')
 }
 

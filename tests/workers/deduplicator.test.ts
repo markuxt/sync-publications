@@ -14,6 +14,7 @@ function makePub(overrides: Partial<PendingPublication>): PendingPublication {
     keywords: [],
     abstract: null,
     pdfUrl: null,
+    pdfUrls: [],
     abstractPage: null,
     abstractScreenshot: null,
     hidden: false,

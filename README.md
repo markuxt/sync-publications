@@ -13,9 +13,8 @@ abstract.
   per author from OpenAlex.
 - **Institution filter**: only fetches publications affiliated with your
   institution via its ROR ID.
-- **Rich output**: frontmatter includes title / authors / ORCIDs / year / DOI
-  / venue / keywords / `pdf_url` / `abstract_page` /
-  `abstract_screenshot`; the body is the reconstructed abstract.
+- **Rich output**: frontmatter includes `title` / `authors` / `ORCIDs` / `year` / `DOI`
+  / `venue` / `keywords` / `abstract_screenshot`; the body is the reconstructed abstract.
 - **Abstract-page screenshot**: when an open-access PDF is available, it is
   downloaded, the page containing the abstract is located, and a
   high-resolution PNG is rendered (shortest side ≥ 1000 px).
@@ -69,6 +68,20 @@ The institution's ROR ID. Look yours up at <https://ror.org>.
 ### `contact_email` (required)
 
 The contact email required by OpenAlex's polite-pool policy.
+
+### `openalex_api_key` (optional)
+
+An OpenAlex API key for the **premium pool** (higher rate limits). The action
+runs fine without it on the free polite pool (`contact_email` alone). When
+provided, it is appended as `api_key=` to every OpenAlex request. Pass it via a
+repository secret — see the [full workflow example](#full-workflow-example):
+
+```yaml
+openalex_api_key: ${{ secrets.OPENALEX_API_KEY }}
+```
+
+Locally, set `OPENALEX_API_KEY` in `.env.development`. An empty/undefined key is treated
+as "no key" (polite pool).
 
 ### `members_dir` (optional, default `src/members`)
 
@@ -149,9 +162,7 @@ year: 2024
 doi: https://doi.org/10.1000/example
 openalex_id: W123456789
 venue: Conference Name 2024
-pdf_url: https://example.com/paper.pdf
-abstract_page: 1
-abstract_screenshot: src/publications/2024/publication-title.png
+abstract_screenshot: publication-title.png   # bare filename — lives next to the .md; markuxt resolves it like a member photo
 keywords:
   - control systems
   - robotics
@@ -167,8 +178,8 @@ The reconstructed abstract text, rebuilt from OpenAlex's inverted index…
 - **GitHub Actions runners** ship with `pdftoppm`.
 - **macOS locally** requires a one-time install: `brew install poppler`.
 - If `pdftoppm` is unavailable, the run is not interrupted — the markdown is
-  still written, with `pdf_url` and `abstract_page` populated but
-  `abstract_screenshot` left empty.
+  still written, with `abstract_screenshot` left empty (the OA PDF URL and
+  abstract page are resolved internally and not recorded either way).
 
 ## Deduplication strategy
 
@@ -211,6 +222,18 @@ This runs on every sync and is idempotent — complete files are skipped, so
 there is no ongoing cost after the first run. The count and list of backfilled
 files are exposed via `backfilled_publications_count` /
 `backfilled_publications_files`.
+
+### Backfilling missing screenshots
+
+A second pass (`screenshots_backfilled_count` / `screenshots_backfilled_files`)
+renders an abstract-page screenshot for any existing publication that has an
+OpenAlex ID but no `abstract_screenshot` yet — it re-queries OpenAlex for the
+work's OA PDF URL, downloads it, locates the abstract page, and writes the PNG
+next to the `.md` plus the `abstract_screenshot` (bare filename) field.
+Idempotent, and it uses a browser-like User-Agent and tries every OA location,
+but **publisher anti-bot (Cloudflare/Akamai — e.g. Wiley, MDPI, Elsevier)
+still blocks most closed-access hosts**; only hosts that actually
+serve the PDF (IEEE, arXiv, many repositories) will succeed.
 
 ## Project structure
 

@@ -21,34 +21,9 @@ import { filterDuplicates, deduplicatePending } from '../src/workers/deduplicato
 import { scanExistingPublications } from '../src/scanners/publications'
 import { scanMembersWithOrcid } from '../src/scanners/members'
 import { normalizeDoi } from '../src/utils/doi'
-import { yamlStr } from '../src/utils/yaml'
+import { buildMarkdown } from '../src/workers/markdown'
 
 import type { PendingPublication } from '../src/types'
-
-function buildMarkdown(pub: PendingPublication): string {
-  const lines: string[] = ['---', `_hidden: ${pub.hidden}`]
-  lines.push(`title: ${yamlStr(pub.title)}`)
-  lines.push('authors:')
-  for (const a of pub.authors) lines.push(`  - ${yamlStr(a)}`)
-  lines.push('authors_orcid:')
-  for (const o of pub.authorsOrcid) lines.push(`  - ${o ?? 'null'}`)
-  lines.push(`year: ${pub.year}`)
-  lines.push(`doi: ${pub.doi ? yamlStr(pub.doi) : ''}`)
-  lines.push(`openalex_id: ${pub.openalexId}`)
-  lines.push(`venue: ${pub.venue ? yamlStr(pub.venue) : ''}`)
-  lines.push(`pdf_url: ${pub.pdfUrl ? yamlStr(pub.pdfUrl) : ''}`)
-  lines.push(`abstract_page: ${pub.abstractPage ?? ''}`)
-  lines.push(`abstract_screenshot: ${pub.abstractScreenshot ? yamlStr(pub.abstractScreenshot) : ''}`)
-  if (pub.keywords.length) {
-    lines.push('keywords:')
-    for (const k of pub.keywords) lines.push(`  - ${yamlStr(k)}`)
-  } else {
-    lines.push('keywords: []')
-  }
-  lines.push('---', '')
-  if (pub.abstract) lines.push(pub.abstract, '')
-  return lines.join('\n')
-}
 
 describe('integration: full sync pipeline (mocked network)', () => {
   let root: string
@@ -185,8 +160,9 @@ describe('integration: full sync pipeline (mocked network)', () => {
     expect(written).toContain('title: A Novel Approach to Robotics')
     expect(written).toContain('openalex_id: W123')
     expect(written).toContain('doi: https://doi.org/10.1000/foo')
-    expect(written).toContain('pdf_url: https://example.com/paper.pdf')
-    expect(written).toContain('abstract_page: 1')
+    // pdf_url / abstract_page are deliberately not written (internal download details).
+    expect(written).not.toContain('pdf_url:')
+    expect(written).not.toContain('abstract_page:')
     expect(written).toContain('abstract_screenshot: publications/2024/a-novel-approach-to-robotics.png')
     expect(written).toContain('A novel approach')
   })

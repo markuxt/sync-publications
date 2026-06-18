@@ -49251,7 +49251,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 });
 
 // src/index.ts
-import { writeFileSync as writeFileSync3, mkdirSync as mkdirSync2, existsSync as existsSync3 } from "fs";
+import { writeFileSync as writeFileSync4, mkdirSync as mkdirSync2, existsSync as existsSync3 } from "fs";
 import { join as join3 } from "path";
 
 // src/utils/env.ts
@@ -49278,7 +49278,7 @@ function parseYamlFrontmatter(content) {
 function yamlStr(value) {
   if (value === "") return "";
   const normalized = value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ");
-  const doc = (0, import_yaml.stringify)(normalized, { defaultStringType: "PLAIN" });
+  const doc = (0, import_yaml.stringify)(normalized, { defaultStringType: "PLAIN", lineWidth: 0 });
   return doc.replace(/\n$/, "");
 }
 function updateFrontmatter(content, updates) {
@@ -49532,24 +49532,33 @@ async function fetchWithRetry(url, init = {}) {
 var SCREENSHOT_DPI = 200;
 var MIN_SHORT_SIDE_PX = 1e3;
 var MAX_PDF_BYTES = 50 * 1024 * 1024;
-function pickPdfUrl(work) {
-  const candidates = [
-    work.best_oa_location?.pdf_url,
-    work.primary_location?.pdf_url,
-    work.open_access?.oa_url
-  ];
+var PDF_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+function pickPdfUrls(work) {
+  const candidates = [];
+  candidates.push(work.best_oa_location?.pdf_url);
+  for (const loc of work.locations ?? []) candidates.push(loc?.pdf_url);
+  candidates.push(work.primary_location?.pdf_url);
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
   for (const c of candidates) {
     if (typeof c !== "string" || !c) continue;
     if (!/^https?:\/\//i.test(c)) continue;
-    return c;
+    if (/^https?:\/\/(dx\.)?doi\.org\//i.test(c)) continue;
+    if (seen.has(c)) continue;
+    seen.add(c);
+    out.push(c);
   }
-  return null;
+  return out;
 }
 async function downloadPdf(url) {
   try {
     const res = await fetchWithRetry(url, {
       timeoutMs: 6e4,
-      retries: 2
+      retries: 2,
+      headers: {
+        "User-Agent": PDF_USER_AGENT,
+        "Accept": "application/pdf,application/octet-stream,*/*"
+      }
     });
     if (!res.ok) {
       console.warn(`[pdf] download failed (${res.status}): ${url}`);
@@ -49689,13 +49698,22 @@ function _expectedMinShortSide(dpi = SCREENSHOT_DPI) {
 if (_expectedMinShortSide() < MIN_SHORT_SIDE_PX) {
   throw new Error(`SCREENSHOT_DPI ${SCREENSHOT_DPI} too low for ${MIN_SHORT_SIDE_PX}px minimum`);
 }
-async function processPdf(work, outDir, relativeDir, name = "abstract-page") {
-  if (!work.pdfUrl) {
+async function processPdf(work, outDir, name = "abstract-page") {
+  const urls = work.pdfUrls && work.pdfUrls.length ? work.pdfUrls : work.pdfUrl ? [work.pdfUrl] : [];
+  if (!urls.length) {
     return { pdfUrl: null, abstractPage: null, screenshotPath: null, skipped: true, reason: "no PDF URL" };
   }
-  const pdfBuffer = await downloadPdf(work.pdfUrl);
+  let pdfBuffer = null;
+  let usedUrl = urls[0];
+  for (const url of urls) {
+    pdfBuffer = await downloadPdf(url);
+    if (pdfBuffer) {
+      usedUrl = url;
+      break;
+    }
+  }
   if (!pdfBuffer) {
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "download failed" };
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "download failed" };
   }
   let pageTexts = [];
   let abstractPage = null;
@@ -49704,15 +49722,15 @@ async function processPdf(work, outDir, relativeDir, name = "abstract-page") {
     abstractPage = locateAbstractPage(work.abstract, pageTexts);
   } catch (err) {
     console.warn(`[pdf] text extraction failed: ${err.message}`);
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "text extraction failed" };
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "text extraction failed" };
   }
   if (!abstractPage) {
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "abstract page not located" };
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "abstract page not located" };
   }
   if (!await hasPdftoppm()) {
     console.warn(`[pdf] pdftoppm not installed \u2014 skipping screenshot, keeping PDF URL + abstract page`);
     return {
-      pdfUrl: work.pdfUrl,
+      pdfUrl: usedUrl,
       abstractPage,
       screenshotPath: null,
       skipped: true,
@@ -49726,12 +49744,12 @@ async function processPdf(work, outDir, relativeDir, name = "abstract-page") {
     const outPath = join2(outDir, `${name}.png`);
     const rendered = await renderPageWithPdftoppm(tmpPdfPath, abstractPage, outPath);
     if (!rendered) {
-      return { pdfUrl: work.pdfUrl, abstractPage, screenshotPath: null, skipped: true, reason: "render failed" };
+      return { pdfUrl: usedUrl, abstractPage, screenshotPath: null, skipped: true, reason: "render failed" };
     }
     return {
-      pdfUrl: work.pdfUrl,
+      pdfUrl: usedUrl,
       abstractPage,
-      screenshotPath: join2(relativeDir, `${name}.png`),
+      screenshotPath: `${name}.png`,
       skipped: false
     };
   } finally {
@@ -49762,11 +49780,12 @@ function pickFilenameStem(title, openalexId, used) {
 
 // src/utils/openalex.ts
 var OPENALEX_BASE = "https://api.openalex.org";
-var WORK_FIELDS = "id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location";
+var WORK_FIELDS = "id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location,locations";
 var WORK_LOOKUP_FIELDS = "id,title,authorships,publication_year,doi";
-async function oaFetch(path, contactEmail) {
+async function oaFetch(path, contactEmail, apiKey) {
   const sep = path.includes("?") ? "&" : "?";
-  const url = `${OPENALEX_BASE}${path}${sep}mailto=${encodeURIComponent(contactEmail)}`;
+  let url = `${OPENALEX_BASE}${path}${sep}mailto=${encodeURIComponent(contactEmail)}`;
+  if (apiKey) url += `&api_key=${encodeURIComponent(apiKey)}`;
   const res = await fetchWithRetry(url, {
     headers: {
       "User-Agent": `markuxt-sync-publications/1.0 (mailto:${contactEmail})`
@@ -49779,30 +49798,33 @@ async function oaFetch(path, contactEmail) {
   }
   return res.json();
 }
-async function getInstitutionId(rorId, contactEmail) {
+async function getInstitutionId(rorId, contactEmail, apiKey) {
   const data = await oaFetch(
     `/institutions?filter=ror:${encodeURIComponent(rorId)}&select=id`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   if (!data.results?.length) {
     throw new Error(`Institution not found for ROR: ${rorId}`);
   }
   return data.results[0].id;
 }
-async function getAuthorId(orcid, contactEmail) {
+async function getAuthorId(orcid, contactEmail, apiKey) {
   const data = await oaFetch(
     `/authors?filter=orcid:${encodeURIComponent(orcid)}&select=id`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   return data.results?.[0]?.id ?? null;
 }
-async function getWorksForAuthor(authorId, institutionId, contactEmail) {
+async function getWorksForAuthor(authorId, institutionId, contactEmail, apiKey) {
   const works = [];
   let cursor = "*";
   while (true) {
     const data = await oaFetch(
       `/works?filter=author.id:${encodeURIComponent(authorId)},institution.id:${encodeURIComponent(institutionId)}&per_page=200&cursor=${encodeURIComponent(cursor)}&select=${WORK_FIELDS}`,
-      contactEmail
+      contactEmail,
+      apiKey
     );
     works.push(...data.results ?? []);
     if (!data.meta?.next_cursor) break;
@@ -49810,28 +49832,31 @@ async function getWorksForAuthor(authorId, institutionId, contactEmail) {
   }
   return works;
 }
-async function getWorkByOpenalexId(id2, contactEmail) {
+async function getWorkByOpenalexId(id2, contactEmail, apiKey, fields = WORK_LOOKUP_FIELDS) {
   const digits = id2.replace(/^W/, "").trim();
   if (!digits) return null;
   const data = await oaFetch(
-    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${fields}`,
+    contactEmail,
+    apiKey
   );
   return data.results?.[0] ?? null;
 }
-async function getWorkByDoi(bareDoi, contactEmail) {
+async function getWorkByDoi(bareDoi, contactEmail, apiKey) {
   if (!bareDoi) return null;
   const data = await oaFetch(
     `/works?filter=doi:${encodeURIComponent(bareDoi)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   return data.results?.[0] ?? null;
 }
-async function searchWorkByTitle(title, year, contactEmail) {
+async function searchWorkByTitle(title, year, contactEmail, apiKey) {
   if (!title) return null;
   const data = await oaFetch(
     `/works?search=${encodeURIComponent(title)}&filter=publication_year:${encodeURIComponent(String(year))}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   return data.results?.[0] ?? null;
 }
@@ -52967,7 +52992,8 @@ function parseWork(work) {
   const venue = work.primary_location?.source?.display_name ?? null;
   const keywords = Array.isArray(work.keywords) ? work.keywords.map((k10) => k10.display_name ?? "").filter(Boolean) : [];
   const abstract = reconstructAbstract(work.abstract_inverted_index ?? null);
-  const pdfUrl = pickPdfUrl(work);
+  const pdfUrls = pickPdfUrls(work);
+  const pdfUrl = pdfUrls[0] ?? null;
   return {
     openalexId: rawId,
     title,
@@ -52979,6 +53005,7 @@ function parseWork(work) {
     keywords,
     abstract,
     pdfUrl,
+    pdfUrls,
     abstractPage: null,
     abstractScreenshot: null,
     hidden: false
@@ -53157,21 +53184,21 @@ function deriveAuthorsFromWork(work) {
   }
   return { authors, authorsOrcid };
 }
-async function resolveWork(fm2, contactEmail) {
+async function resolveWork(fm2, contactEmail, apiKey) {
   const storedId = typeof fm2.openalex_id === "string" ? fm2.openalex_id.trim() : "";
   if (storedId) {
-    const work = await getWorkByOpenalexId(storedId, contactEmail);
+    const work = await getWorkByOpenalexId(storedId, contactEmail, apiKey);
     if (work) return work;
   }
   const doi = normalizeDoi(typeof fm2.doi === "string" ? fm2.doi : null);
   if (doi) {
-    const work = await getWorkByDoi(doi, contactEmail);
+    const work = await getWorkByDoi(doi, contactEmail, apiKey);
     if (work) return work;
   }
   const title = typeof fm2.title === "string" ? fm2.title.trim() : "";
   const year = typeof fm2.year === "number" ? fm2.year : typeof fm2.year === "string" ? parseInt(fm2.year, 10) : NaN;
   if (!title || !Number.isFinite(year)) return null;
-  const found = await searchWorkByTitle(title, year, contactEmail);
+  const found = await searchWorkByTitle(title, year, contactEmail, apiKey);
   if (!found) return null;
   const foundTitle = typeof found.title === "string" ? found.title : "";
   const foundAuthors = (found.authorships ?? []).map((a) => a.author?.display_name ? formatAuthorName(a.author.display_name) : null).filter((n15) => !!n15);
@@ -53183,7 +53210,7 @@ async function resolveWork(fm2, contactEmail) {
   }
   return null;
 }
-async function backfillPublication(file, contactEmail) {
+async function backfillPublication(file, contactEmail, apiKey) {
   const content = readFileSync3(file, "utf-8");
   const fm2 = parseYamlFrontmatter(content);
   if (Object.keys(fm2).length === 0) {
@@ -53194,7 +53221,7 @@ async function backfillPublication(file, contactEmail) {
   if (hasOpenalexId && hasAuthorsOrcid) {
     return { status: "complete" };
   }
-  const work = await resolveWork(fm2, contactEmail);
+  const work = await resolveWork(fm2, contactEmail, apiKey);
   if (!work) {
     return { status: "no_match", file, reason: "not found on OpenAlex" };
   }
@@ -53226,12 +53253,12 @@ async function backfillPublication(file, contactEmail) {
   }
   return { status: "backfilled", file, openalexId: rawId || void 0, changes };
 }
-async function backfillExisting(existing, contactEmail) {
+async function backfillExisting(existing, contactEmail, apiKey) {
   const changed = [];
   const incomplete = existing.filter((e) => !e.hasOpenalexId || !e.hasAuthorsOrcid);
   for (const e of incomplete) {
     try {
-      const result = await backfillPublication(e.file, contactEmail);
+      const result = await backfillPublication(e.file, contactEmail, apiKey);
       if (result.status === "backfilled") {
         changed.push(e.file);
         if (result.openalexId) e.openalexId = result.openalexId.replace(/^W/, "");
@@ -53246,10 +53273,59 @@ async function backfillExisting(existing, contactEmail) {
   return changed;
 }
 
+// src/workers/screenshot-backfill.ts
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "fs";
+import { basename, dirname } from "path";
+function extractBody(content) {
+  const m = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/);
+  return m ? m[1].trim() : "";
+}
+async function backfillScreenshots(existing, contactEmail, apiKey) {
+  const changed = [];
+  for (const e of existing) {
+    if (!e.openalexId) continue;
+    let content;
+    try {
+      content = readFileSync4(e.file, "utf-8");
+    } catch {
+      continue;
+    }
+    const fm2 = parseYamlFrontmatter(content);
+    if (typeof fm2.abstract_screenshot === "string" && fm2.abstract_screenshot.trim()) continue;
+    const work = await getWorkByOpenalexId(e.openalexId, contactEmail, apiKey, WORK_FIELDS);
+    if (!work) continue;
+    const pub = parseWork(work);
+    if (!pub || !pub.pdfUrls.length) continue;
+    const abstract = extractBody(content) || pub.abstract;
+    const stem = basename(e.file, ".md");
+    const outDir = dirname(e.file);
+    let result;
+    try {
+      result = await processPdf(
+        { abstract: abstract || null, pdfUrl: pub.pdfUrl, pdfUrls: pub.pdfUrls },
+        outDir,
+        stem
+      );
+    } catch (err) {
+      console.warn(`  [screenshot error] ${e.file}: ${err.message}`);
+      continue;
+    }
+    if (!result.screenshotPath) continue;
+    const newContent = updateFrontmatter(content, { abstract_screenshot: result.screenshotPath });
+    if (newContent !== content) {
+      writeFileSync3(e.file, newContent, "utf-8");
+      changed.push(e.file);
+      console.log(`  [screenshot] ${e.file} \u2192 ${result.screenshotPath}`);
+    }
+  }
+  return changed;
+}
+
 // src/index.ts
 loadEnvFiles(void 0, process.env.NODE_ENV || "development");
 var ROR_ID = process.env.INPUT_ROR_ID || process.env.ROR_ID || "";
 var CONTACT_EMAIL = process.env.INPUT_CONTACT_EMAIL || process.env.CONTACT_EMAIL || "";
+var API_KEY = process.env.INPUT_OPENALEX_API_KEY || process.env.OPENALEX_API_KEY || "";
 var MEMBERS_DIR_INPUT = process.env.INPUT_MEMBERS_DIR || process.env.MEMBERS_DIR || "";
 var PUBLICATIONS_DIR_INPUT = process.env.INPUT_PUBLICATIONS_DIR || process.env.PUBLICATIONS_DIR || "";
 var GITHUB_OUTPUT = process.env.GITHUB_OUTPUT || "";
@@ -53275,8 +53351,6 @@ function buildMarkdown(pub) {
   lines.push(`doi: ${pub.doi ? yamlStr(pub.doi) : ""}`);
   lines.push(`openalex_id: ${pub.openalexId}`);
   lines.push(`venue: ${pub.venue ? yamlStr(pub.venue) : ""}`);
-  lines.push(`pdf_url: ${pub.pdfUrl ? yamlStr(pub.pdfUrl) : ""}`);
-  lines.push(`abstract_page: ${pub.abstractPage ?? ""}`);
   lines.push(`abstract_screenshot: ${pub.abstractScreenshot ? yamlStr(pub.abstractScreenshot) : ""}`);
   if (pub.keywords.length) {
     lines.push("keywords:");
@@ -53293,12 +53367,15 @@ async function main() {
   console.log(`[markuxt-sync-publications] ROR ID: ${ROR_ID}`);
   console.log(`[markuxt-sync-publications] Publications dir: ${PUBLICATIONS_DIR}`);
   console.log(`[markuxt-sync-publications] Members dir: ${MEMBERS_DIR}`);
-  const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL);
+  console.log(`[markuxt-sync-publications] OpenAlex pool: ${API_KEY ? "premium (api_key)" : "polite (mailto)"}`);
+  const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL, API_KEY);
   console.log(`[markuxt-sync-publications] Institution ID: ${institutionId}`);
   const existing = await scanExistingPublications(PUBLICATIONS_DIR);
   console.log(`[markuxt-sync-publications] Found ${existing.length} existing publications`);
-  const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL);
+  const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL, API_KEY);
   console.log(`[markuxt-sync-publications] Backfilled ${backfilledFiles.length} existing publication(s)`);
+  const screenshotFiles = await backfillScreenshots(existing, CONTACT_EMAIL, API_KEY);
+  console.log(`[markuxt-sync-publications] Added screenshots to ${screenshotFiles.length} existing publication(s)`);
   const existingOpenalexIds = new Set(
     existing.map((p10) => p10.openalexId).filter((id2) => !!id2)
   );
@@ -53310,13 +53387,13 @@ async function main() {
   const allWorks = /* @__PURE__ */ new Map();
   for (const member of members) {
     console.log(`[markuxt-sync-publications] Processing ${member.name} (${member.orcid})...`);
-    const authorId = await getAuthorId(member.orcid, CONTACT_EMAIL);
+    const authorId = await getAuthorId(member.orcid, CONTACT_EMAIL, API_KEY);
     if (!authorId) {
       console.warn(`  \u2192 Not found on OpenAlex: ${member.orcid}`);
       continue;
     }
     console.log(`  \u2192 Author ID: ${authorId}`);
-    const works = await getWorksForAuthor(authorId, institutionId, CONTACT_EMAIL);
+    const works = await getWorksForAuthor(authorId, institutionId, CONTACT_EMAIL, API_KEY);
     console.log(`  \u2192 ${works.length} works`);
     for (const w of works) {
       const pub = parseWork(w);
@@ -53346,8 +53423,7 @@ async function main() {
     used.add(stem);
     if (pub.pdfUrl && !pub.hidden) {
       try {
-        const relativeYearDir = join3(PUBLICATIONS_DIR, yearKey);
-        const result = await processPdf(pub, yearDir, relativeYearDir, stem);
+        const result = await processPdf(pub, yearDir, stem);
         pub.pdfUrl = result.pdfUrl;
         pub.abstractPage = result.abstractPage;
         pub.abstractScreenshot = result.screenshotPath;
@@ -53361,7 +53437,7 @@ async function main() {
       }
     }
     const filePath = join3(yearDir, `${stem}.md`);
-    writeFileSync3(filePath, buildMarkdown(pub), "utf-8");
+    writeFileSync4(filePath, buildMarkdown(pub), "utf-8");
     console.log(`  [${pub.hidden ? "hidden" : "visible"}] ${filePath}`);
     newFiles.push(filePath);
   }
@@ -53369,6 +53445,8 @@ async function main() {
   setOutput("new_publications_files", newFiles.join("\n"));
   setOutput("backfilled_publications_count", String(backfilledFiles.length));
   setOutput("backfilled_publications_files", backfilledFiles.join("\n"));
+  setOutput("screenshots_backfilled_count", String(screenshotFiles.length));
+  setOutput("screenshots_backfilled_files", screenshotFiles.join("\n"));
   console.log(`[markuxt-sync-publications] Done. Added ${newFiles.length} publication files.`);
 }
 main().catch((err) => {

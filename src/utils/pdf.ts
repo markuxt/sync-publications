@@ -32,25 +32,51 @@ const MIN_SHORT_SIDE_PX = 1000
 const MAX_PDF_BYTES = 50 * 1024 * 1024 // 50 MB hard cap
 
 /**
- * Pick the best PDF URL from an OpenAlex work object.
- * Priority: best_oa_location.pdf_url > primary_location.pdf_url
- * > open_access.oa_url (only if it looks like a PDF).
+ * Browser-like User-Agent for PDF downloads. Many OA hosts (publisher sites,
+ * institutional repositories such as Wiley / Elsevier / worktribe) reject
+ * requests carrying undici's default UA with 403/405; a desktop-browser UA
+ * unblocks most of them.
  */
-export function pickPdfUrl(work: OpenAlexWork): string | null {
-  const candidates: (string | null | undefined)[] = [
-    work.best_oa_location?.pdf_url,
-    work.primary_location?.pdf_url,
-    work.open_access?.oa_url
-  ]
+const PDF_USER_AGENT =
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
+/**
+ * Collect every candidate OA PDF URL from an OpenAlex work, in priority order,
+ * de-duplicated. We try them in turn until one downloads as a real PDF.
+ *
+ * Only the `*_pdf_url` fields point at the actual PDF: best_oa_location → every
+ * entry in locations[] → primary_location. `open_access.oa_url` is deliberately
+ * excluded — it is a landing page (very often a doi.org resolver), never the
+ * PDF itself. Any doi.org URL is rejected for the same reason. Many works have
+ * several OA copies (repository, preprint server, …); the "best" one is often a
+ * host that 403s us, so falling through to the alternates recovers screenshots.
+ */
+export function pickPdfUrls(work: OpenAlexWork): string[] {
+  const candidates: (string | null | undefined)[] = []
+  candidates.push(work.best_oa_location?.pdf_url)
+  for (const loc of work.locations ?? []) candidates.push(loc?.pdf_url)
+  candidates.push(work.primary_location?.pdf_url)
+
+  const seen = new Set<string>()
+  const out: string[] = []
   for (const c of candidates) {
     if (typeof c !== 'string' || !c) continue
     if (!/^https?:\/\//i.test(c)) continue
-    // If we can't tell it's a PDF by extension or explicit content-type,
-    // still accept — many OA landing URLs serve PDFs without .pdf suffix.
-    return c
+    // A DOI resolver never serves a PDF (it redirects to the publisher page).
+    if (/^https?:\/\/(dx\.)?doi\.org\//i.test(c)) continue
+    if (seen.has(c)) continue
+    seen.add(c)
+    out.push(c)
   }
-  return null
+  return out
+}
+
+/**
+ * Canonical (first) candidate URL. Kept for callers/tests that want a single
+ * URL; the download path uses pickPdfUrls to try alternates on failure.
+ */
+export function pickPdfUrl(work: OpenAlexWork): string | null {
+  return pickPdfUrls(work)[0] ?? null
 }
 
 /**
@@ -61,7 +87,11 @@ export async function downloadPdf(url: string): Promise<Buffer | null> {
   try {
     const res = await fetchWithRetry(url, {
       timeoutMs: 60_000,
-      retries: 2
+      retries: 2,
+      headers: {
+        'User-Agent': PDF_USER_AGENT,
+        'Accept': 'application/pdf,application/octet-stream,*/*'
+      }
     })
     if (!res.ok) {
       console.warn(`[pdf] download failed (${res.status}): ${url}`)
@@ -291,29 +321,46 @@ if (_expectedMinShortSide() < MIN_SHORT_SIDE_PX) {
 /**
  * End-to-end: download PDF, locate abstract, render screenshot.
  *
- * Caller provides the directory where the screenshot should be written and
- * the file basename (without extension). Screenshot goes to
- * `<outDir>/<name>.png` and is referenced as `<relativeDir>/<name>.png`.
+ * Caller provides the directory where the screenshot should be written (the
+ * publication's own directory) and the file basename (without extension). The
+ * PNG is written to `<outDir>/<name>.png` and `screenshotPath` is returned as
+ * the bare `<name>.png` — markuxt resolves it relative to the publication's
+ * location (like member photos), NOT as a repo-root path.
  *
- *   const result = await processPdf(pub, 'publications/2024', 'publications/2024', 'W123')
- *   // → writes publications/2024/W123.png
+ *   const result = await processPdf(pub, 'publications/2024', 'W123')
+ *   // → writes publications/2024/W123.png, screenshotPath = 'W123.png'
  *
  * Returns metadata describing what happened. Never throws — failures
  * downgrade gracefully (skipped=true) so the rest of the sync still runs.
  */
 export async function processPdf(
-  work: { abstract: string | null; pdfUrl: string | null },
+  work: { abstract: string | null; pdfUrl: string | null; pdfUrls?: string[] },
   outDir: string,
-  relativeDir: string,
   name: string = 'abstract-page'
 ): Promise<PdfProcessResult> {
-  if (!work.pdfUrl) {
+  // Candidate URLs: prefer the full list; fall back to the single canonical one.
+  const urls = work.pdfUrls && work.pdfUrls.length
+    ? work.pdfUrls
+    : (work.pdfUrl ? [work.pdfUrl] : [])
+
+  if (!urls.length) {
     return { pdfUrl: null, abstractPage: null, screenshotPath: null, skipped: true, reason: 'no PDF URL' }
   }
 
-  const pdfBuffer = await downloadPdf(work.pdfUrl)
+  // Try each candidate until one downloads as a real PDF. Many works have
+  // several OA copies; the first is often a paywalled landing page or a host
+  // that 403s us, so we fall through to the alternates.
+  let pdfBuffer: Buffer | null = null
+  let usedUrl = urls[0]
+  for (const url of urls) {
+    pdfBuffer = await downloadPdf(url)
+    if (pdfBuffer) {
+      usedUrl = url
+      break
+    }
+  }
   if (!pdfBuffer) {
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: 'download failed' }
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: 'download failed' }
   }
 
   let pageTexts: string[] = []
@@ -323,18 +370,18 @@ export async function processPdf(
     abstractPage = locateAbstractPage(work.abstract, pageTexts)
   } catch (err) {
     console.warn(`[pdf] text extraction failed: ${(err as Error).message}`)
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: 'text extraction failed' }
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: 'text extraction failed' }
   }
 
   if (!abstractPage) {
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: 'abstract page not located' }
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: 'abstract page not located' }
   }
 
   // Render screenshot if we can.
   if (!await hasPdftoppm()) {
     console.warn(`[pdf] pdftoppm not installed — skipping screenshot, keeping PDF URL + abstract page`)
     return {
-      pdfUrl: work.pdfUrl,
+      pdfUrl: usedUrl,
       abstractPage,
       screenshotPath: null,
       skipped: true,
@@ -351,13 +398,13 @@ export async function processPdf(
     const outPath = join(outDir, `${name}.png`)
     const rendered = await renderPageWithPdftoppm(tmpPdfPath, abstractPage, outPath)
     if (!rendered) {
-      return { pdfUrl: work.pdfUrl, abstractPage, screenshotPath: null, skipped: true, reason: 'render failed' }
+      return { pdfUrl: usedUrl, abstractPage, screenshotPath: null, skipped: true, reason: 'render failed' }
     }
 
     return {
-      pdfUrl: work.pdfUrl,
+      pdfUrl: usedUrl,
       abstractPage,
-      screenshotPath: join(relativeDir, `${name}.png`),
+      screenshotPath: `${name}.png`,
       skipped: false
     }
   } finally {

@@ -19,19 +19,25 @@ const OPENALEX_BASE = 'https://api.openalex.org'
  * WORK_LOOKUP_FIELDS is a focused set for single-work lookups (backfill):
  * just the ID plus what's needed for the similarity guard and author ORCIDs.
  */
-const WORK_FIELDS = 'id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location'
+export const WORK_FIELDS = 'id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location,locations'
 const WORK_LOOKUP_FIELDS = 'id,title,authorships,publication_year,doi'
 
 /**
  * Fetch from OpenAlex API with mailto + User-Agent (polite pool).
  * Retries automatically on transient failures.
+ *
+ * When `apiKey` is provided it is appended as `api_key=…`, switching requests
+ * to OpenAlex's premium pool (higher rate limits). Without it the free polite
+ * pool (mailto) is used.
  */
 export async function oaFetch(
   path: string,
-  contactEmail: string
+  contactEmail: string,
+  apiKey?: string
 ): Promise<unknown> {
   const sep = path.includes('?') ? '&' : '?'
-  const url = `${OPENALEX_BASE}${path}${sep}mailto=${encodeURIComponent(contactEmail)}`
+  let url = `${OPENALEX_BASE}${path}${sep}mailto=${encodeURIComponent(contactEmail)}`
+  if (apiKey) url += `&api_key=${encodeURIComponent(apiKey)}`
 
   const res = await fetchWithRetry(url, {
     headers: {
@@ -51,10 +57,11 @@ export async function oaFetch(
 /**
  * Get OpenAlex institution ID from a ROR ID.
  */
-export async function getInstitutionId(rorId: string, contactEmail: string): Promise<string> {
+export async function getInstitutionId(rorId: string, contactEmail: string, apiKey?: string): Promise<string> {
   const data = await oaFetch(
     `/institutions?filter=ror:${encodeURIComponent(rorId)}&select=id`,
-    contactEmail
+    contactEmail,
+    apiKey
   ) as OpenAlexResponse<{ id: string }>
 
   if (!data.results?.length) {
@@ -67,10 +74,11 @@ export async function getInstitutionId(rorId: string, contactEmail: string): Pro
 /**
  * Get OpenAlex author ID from an ORCID.
  */
-export async function getAuthorId(orcid: string, contactEmail: string): Promise<string | null> {
+export async function getAuthorId(orcid: string, contactEmail: string, apiKey?: string): Promise<string | null> {
   const data = await oaFetch(
     `/authors?filter=orcid:${encodeURIComponent(orcid)}&select=id`,
-    contactEmail
+    contactEmail,
+    apiKey
   ) as OpenAlexResponse<{ id: string }>
 
   return data.results?.[0]?.id ?? null
@@ -83,7 +91,8 @@ export async function getAuthorId(orcid: string, contactEmail: string): Promise<
 export async function getWorksForAuthor(
   authorId: string,
   institutionId: string,
-  contactEmail: string
+  contactEmail: string,
+  apiKey?: string
 ): Promise<OpenAlexWork[]> {
   const works: OpenAlexWork[] = []
   let cursor = '*'
@@ -91,7 +100,8 @@ export async function getWorksForAuthor(
   while (true) {
     const data = await oaFetch(
       `/works?filter=author.id:${encodeURIComponent(authorId)},institution.id:${encodeURIComponent(institutionId)}&per_page=200&cursor=${encodeURIComponent(cursor)}&select=${WORK_FIELDS}`,
-      contactEmail
+      contactEmail,
+      apiKey
     ) as OpenAlexResponse<OpenAlexWork> & { meta: { next_cursor: string | null } }
 
     works.push(...(data.results ?? []))
@@ -107,12 +117,13 @@ export async function getWorksForAuthor(
  * Look up a single work by its OpenAlex ID (W… form, with or without leading W).
  * Returns null if not found.
  */
-export async function getWorkByOpenalexId(id: string, contactEmail: string): Promise<OpenAlexWork | null> {
+export async function getWorkByOpenalexId(id: string, contactEmail: string, apiKey?: string, fields: string = WORK_LOOKUP_FIELDS): Promise<OpenAlexWork | null> {
   const digits = id.replace(/^W/, '').trim()
   if (!digits) return null
   const data = await oaFetch(
-    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${fields}`,
+    contactEmail,
+    apiKey
   ) as OpenAlexResponse<OpenAlexWork>
   return data.results?.[0] ?? null
 }
@@ -121,11 +132,12 @@ export async function getWorkByOpenalexId(id: string, contactEmail: string): Pro
  * Look up a single work by its bare DOI (e.g. "10.3390/polymers14102019").
  * Returns null if not found.
  */
-export async function getWorkByDoi(bareDoi: string, contactEmail: string): Promise<OpenAlexWork | null> {
+export async function getWorkByDoi(bareDoi: string, contactEmail: string, apiKey?: string): Promise<OpenAlexWork | null> {
   if (!bareDoi) return null
   const data = await oaFetch(
     `/works?filter=doi:${encodeURIComponent(bareDoi)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    contactEmail,
+    apiKey
   ) as OpenAlexResponse<OpenAlexWork>
   return data.results?.[0] ?? null
 }
@@ -137,11 +149,12 @@ export async function getWorkByDoi(bareDoi: string, contactEmail: string): Promi
  * caller MUST verify the result is a genuine match — OpenAlex search is
  * fuzzy and the top hit may be a different work.
  */
-export async function searchWorkByTitle(title: string, year: number, contactEmail: string): Promise<OpenAlexWork | null> {
+export async function searchWorkByTitle(title: string, year: number, contactEmail: string, apiKey?: string): Promise<OpenAlexWork | null> {
   if (!title) return null
   const data = await oaFetch(
     `/works?search=${encodeURIComponent(title)}&filter=publication_year:${encodeURIComponent(String(year))}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    contactEmail,
+    apiKey
   ) as OpenAlexResponse<OpenAlexWork>
   return data.results?.[0] ?? null
 }

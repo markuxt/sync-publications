@@ -23,7 +23,6 @@ loadEnvFiles(undefined, process.env.NODE_ENV || 'development')
 import type { PendingPublication } from './types'
 
 // Utility imports
-import { yamlStr } from './utils/yaml'
 import { initGitHubOutput, setOutput } from './utils/github'
 import { normalizeDoi } from './utils/doi'
 import { processPdf } from './utils/pdf'
@@ -44,6 +43,8 @@ import { scanMembersWithOrcid } from './scanners/members'
 import { parseWork } from './workers/parser'
 import { filterDuplicates, deduplicatePending } from './workers/deduplicator'
 import { backfillExisting } from './workers/backfill'
+import { backfillScreenshots } from './workers/screenshot-backfill'
+import { buildMarkdown } from './workers/markdown'
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -54,6 +55,7 @@ import { backfillExisting } from './workers/backfill'
 
 const ROR_ID = process.env.INPUT_ROR_ID || process.env.ROR_ID || ''
 const CONTACT_EMAIL = process.env.INPUT_CONTACT_EMAIL || process.env.CONTACT_EMAIL || ''
+const API_KEY = process.env.INPUT_OPENALEX_API_KEY || process.env.OPENALEX_API_KEY || ''
 const MEMBERS_DIR_INPUT = process.env.INPUT_MEMBERS_DIR || process.env.MEMBERS_DIR || ''
 const PUBLICATIONS_DIR_INPUT = process.env.INPUT_PUBLICATIONS_DIR || process.env.PUBLICATIONS_DIR || ''
 const GITHUB_OUTPUT = process.env.GITHUB_OUTPUT || ''
@@ -83,39 +85,6 @@ const PUBLICATIONS_DIR = PUBLICATIONS_DIR_INPUT || 'src/publications'
 initGitHubOutput(GITHUB_OUTPUT)
 
 // ---------------------------------------------------------------------------
-// Markdown builder
-// ---------------------------------------------------------------------------
-
-function buildMarkdown(pub: PendingPublication): string {
-  const lines: string[] = ['---', `_hidden: ${pub.hidden}`]
-
-  lines.push(`title: ${yamlStr(pub.title)}`)
-  lines.push('authors:')
-  for (const a of pub.authors) lines.push(`  - ${yamlStr(a)}`)
-  lines.push('authors_orcid:')
-  for (const o of pub.authorsOrcid) lines.push(`  - ${o ?? 'null'}`)
-  lines.push(`year: ${pub.year}`)
-  lines.push(`doi: ${pub.doi ? yamlStr(pub.doi) : ''}`)
-  lines.push(`openalex_id: ${pub.openalexId}`)
-  lines.push(`venue: ${pub.venue ? yamlStr(pub.venue) : ''}`)
-  lines.push(`pdf_url: ${pub.pdfUrl ? yamlStr(pub.pdfUrl) : ''}`)
-  lines.push(`abstract_page: ${pub.abstractPage ?? ''}`)
-  lines.push(`abstract_screenshot: ${pub.abstractScreenshot ? yamlStr(pub.abstractScreenshot) : ''}`)
-
-  if (pub.keywords.length) {
-    lines.push('keywords:')
-    for (const k of pub.keywords) lines.push(`  - ${yamlStr(k)}`)
-  } else {
-    lines.push('keywords: []')
-  }
-
-  lines.push('---', '')
-  if (pub.abstract) lines.push(pub.abstract, '')
-
-  return lines.join('\n')
-}
-
-// ---------------------------------------------------------------------------
 // Main workflow
 // ---------------------------------------------------------------------------
 
@@ -124,9 +93,10 @@ async function main() {
   console.log(`[markuxt-sync-publications] ROR ID: ${ROR_ID}`)
   console.log(`[markuxt-sync-publications] Publications dir: ${PUBLICATIONS_DIR}`)
   console.log(`[markuxt-sync-publications] Members dir: ${MEMBERS_DIR}`)
+  console.log(`[markuxt-sync-publications] OpenAlex pool: ${API_KEY ? 'premium (api_key)' : 'polite (mailto)'}`)
 
   // 1. Resolve institution OpenAlex ID
-  const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL)
+  const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL, API_KEY)
   console.log(`[markuxt-sync-publications] Institution ID: ${institutionId}`)
 
   // 2. Scan existing publications
@@ -138,8 +108,15 @@ async function main() {
   // fills missing fields and preserves the body. Runs before the dedup sets
   // are built so newly-resolved IDs suppress the same works from being
   // re-added as new.
-  const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL)
+  const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL, API_KEY)
   console.log(`[markuxt-sync-publications] Backfilled ${backfilledFiles.length} existing publication(s)`)
+
+  // 2b. Backfill abstract-page screenshots for existing publications that have
+  // a reachable OA PDF but no screenshot yet. Idempotent — pubs that already
+  // have an abstract_screenshot are skipped, so this only does work the first
+  // time (or when a previously-unreachable PDF becomes reachable).
+  const screenshotFiles = await backfillScreenshots(existing, CONTACT_EMAIL, API_KEY)
+  console.log(`[markuxt-sync-publications] Added screenshots to ${screenshotFiles.length} existing publication(s)`)
 
   const existingOpenalexIds = new Set(
     existing.map(p => p.openalexId).filter((id): id is string => !!id)
@@ -159,7 +136,7 @@ async function main() {
 
   for (const member of members) {
     console.log(`[markuxt-sync-publications] Processing ${member.name} (${member.orcid})...`)
-    const authorId = await getAuthorId(member.orcid, CONTACT_EMAIL)
+    const authorId = await getAuthorId(member.orcid, CONTACT_EMAIL, API_KEY)
 
     if (!authorId) {
       console.warn(`  → Not found on OpenAlex: ${member.orcid}`)
@@ -167,7 +144,7 @@ async function main() {
     }
 
     console.log(`  → Author ID: ${authorId}`)
-    const works = await getWorksForAuthor(authorId, institutionId, CONTACT_EMAIL)
+    const works = await getWorksForAuthor(authorId, institutionId, CONTACT_EMAIL, API_KEY)
     console.log(`  → ${works.length} works`)
 
     for (const w of works) {
@@ -221,8 +198,7 @@ async function main() {
     //     metadata we have. We only run this for OA papers with a PDF URL.
     if (pub.pdfUrl && !pub.hidden) {
       try {
-        const relativeYearDir = join(PUBLICATIONS_DIR, yearKey)
-        const result = await processPdf(pub, yearDir, relativeYearDir, stem)
+        const result = await processPdf(pub, yearDir, stem)
         pub.pdfUrl = result.pdfUrl
         pub.abstractPage = result.abstractPage
         pub.abstractScreenshot = result.screenshotPath
@@ -250,6 +226,8 @@ async function main() {
   setOutput('new_publications_files', newFiles.join('\n'))
   setOutput('backfilled_publications_count', String(backfilledFiles.length))
   setOutput('backfilled_publications_files', backfilledFiles.join('\n'))
+  setOutput('screenshots_backfilled_count', String(screenshotFiles.length))
+  setOutput('screenshots_backfilled_files', screenshotFiles.join('\n'))
 
   console.log(`[markuxt-sync-publications] Done. Added ${newFiles.length} publication files.`)
 }

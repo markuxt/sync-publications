@@ -67,6 +67,17 @@ describe('yamlStr', () => {
   it('collapses embedded line breaks so inline frontmatter stays valid', () => {
     expect(yamlStr('Line one\nLine two')).toBe('Line one Line two')
   })
+
+  it('does not wrap long quoted scalars across lines (re-scan idempotency)', () => {
+    // A long title containing ": " gets quoted; it must NOT be folded across
+    // lines, or emitting it inline as `title: …` puts the continuation at
+    // column 0 → invalid YAML that parseYamlFrontmatter rejects on re-scan.
+    const title = 'Generating precise non-flat grinding wheel surfaces via CO2 laser ablation: Understanding the relationship between overlap rate and feed rate on composite materials'
+    const scalar = yamlStr(title)
+    expect(scalar.includes('\n')).toBe(false)
+    const md = `---\ntitle: ${scalar}\nyear: 2022\n---`
+    expect(parseYamlFrontmatter(md)).toEqual({ title, year: 2022 })
+  })
 })
 
 describe('updateFrontmatter', () => {

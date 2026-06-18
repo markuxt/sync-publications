@@ -83,17 +83,18 @@ function deriveAuthorsFromWork(work: OpenAlexWork): { authors: string[]; authors
  */
 async function resolveWork(
   fm: Record<string, unknown>,
-  contactEmail: string
+  contactEmail: string,
+  apiKey?: string
 ): Promise<OpenAlexWork | null> {
   const storedId = typeof fm.openalex_id === 'string' ? fm.openalex_id.trim() : ''
   if (storedId) {
-    const work = await getWorkByOpenalexId(storedId, contactEmail)
+    const work = await getWorkByOpenalexId(storedId, contactEmail, apiKey)
     if (work) return work
   }
 
   const doi = normalizeDoi(typeof fm.doi === 'string' ? fm.doi : null)
   if (doi) {
-    const work = await getWorkByDoi(doi, contactEmail)
+    const work = await getWorkByDoi(doi, contactEmail, apiKey)
     if (work) return work
   }
 
@@ -104,7 +105,7 @@ async function resolveWork(
     : (typeof fm.year === 'string' ? parseInt(fm.year, 10) : NaN)
   if (!title || !Number.isFinite(year)) return null
 
-  const found = await searchWorkByTitle(title, year, contactEmail)
+  const found = await searchWorkByTitle(title, year, contactEmail, apiKey)
   if (!found) return null
 
   const foundTitle = typeof found.title === 'string' ? found.title : ''
@@ -133,7 +134,7 @@ async function resolveWork(
  * `openalex_id` and/or `authors_orcid` fields (plus `authors` if it is also
  * absent). The body and all other frontmatter fields are preserved.
  */
-export async function backfillPublication(file: string, contactEmail: string): Promise<BackfillResult> {
+export async function backfillPublication(file: string, contactEmail: string, apiKey?: string): Promise<BackfillResult> {
   const content = readFileSync(file, 'utf-8')
   const fm = parseYamlFrontmatter(content)
   if (Object.keys(fm).length === 0) {
@@ -146,7 +147,7 @@ export async function backfillPublication(file: string, contactEmail: string): P
     return { status: 'complete' }
   }
 
-  const work = await resolveWork(fm, contactEmail)
+  const work = await resolveWork(fm, contactEmail, apiKey)
   if (!work) {
     return { status: 'no_match', file, reason: 'not found on OpenAlex' }
   }
@@ -193,14 +194,15 @@ export async function backfillPublication(file: string, contactEmail: string): P
  */
 export async function backfillExisting(
   existing: ExistingPublication[],
-  contactEmail: string
+  contactEmail: string,
+  apiKey?: string
 ): Promise<string[]> {
   const changed: string[] = []
   const incomplete = existing.filter(e => !e.hasOpenalexId || !e.hasAuthorsOrcid)
 
   for (const e of incomplete) {
     try {
-      const result = await backfillPublication(e.file, contactEmail)
+      const result = await backfillPublication(e.file, contactEmail, apiKey)
       if (result.status === 'backfilled') {
         changed.push(e.file)
         if (result.openalexId) e.openalexId = result.openalexId.replace(/^W/, '')
