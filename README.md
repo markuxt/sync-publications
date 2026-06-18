@@ -70,6 +70,20 @@ The institution's ROR ID. Look yours up at <https://ror.org>.
 
 The contact email required by OpenAlex's polite-pool policy.
 
+### `openalex_api_key` (optional)
+
+An OpenAlex API key for the **premium pool** (higher rate limits). The action
+runs fine without it on the free polite pool (`contact_email` alone). When
+provided, it is appended as `api_key=` to every OpenAlex request. Pass it via a
+repository secret — see the [full workflow example](#full-workflow-example):
+
+```yaml
+openalex_api_key: ${{ secrets.OPENALEX_API_KEY }}
+```
+
+Locally, set `OPENALEX_API_KEY` in `.env.development`. An empty/undefined key is treated
+as "no key" (polite pool).
+
 ### `members_dir` (optional, default `src/members`)
 
 The directory scanned for member markdown files (relative to the repo root

@@ -7,9 +7,13 @@
 # triggering branch.
 #
 # Prerequisites — add these repository secrets:
-#   OPENALEX_ROR_ID        Your institution ROR, e.g. https://ror.org/03y4dt428
+#   ROR_ID                 Your institution ROR, e.g. https://ror.org/03y4dt428
 #                          (not secret — can be inlined if you prefer)
 #   OPENALEX_CONTACT_EMAIL Email for OpenAlex's polite-pool policy
+#   OPENALEX_API_KEY       Optional — OpenAlex premium API key for higher rate
+#                          limits. Omit (or leave empty) to use the free polite
+#                          pool. Undefined secrets resolve to an empty string,
+#                          which the action treats as "no key".
 #
 # The ubuntu runner ships with poppler (pdftoppm), so abstract-page PNGs render
 # out of the box. No extra setup needed.
@@ -49,8 +53,9 @@ jobs:
         id: sync
         uses: markuxt/sync-publications@v1
         with:
-          ror_id: ${{ secrets.OPENALEX_ROR_ID }}
+          ror_id: ${{ secrets.ROR_ID }}
           contact_email: ${{ secrets.OPENALEX_CONTACT_EMAIL }}
+          openalex_api_key: ${{ secrets.OPENALEX_API_KEY }}
           members_dir: ${{ inputs.members_dir || 'src/members' }}
           publications_dir: ${{ inputs.publications_dir || 'src/publications' }}
 

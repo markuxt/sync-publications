@@ -49278,7 +49278,7 @@ function parseYamlFrontmatter(content) {
 function yamlStr(value) {
   if (value === "") return "";
   const normalized = value.replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ");
-  const doc = (0, import_yaml.stringify)(normalized, { defaultStringType: "PLAIN" });
+  const doc = (0, import_yaml.stringify)(normalized, { defaultStringType: "PLAIN", lineWidth: 0 });
   return doc.replace(/\n$/, "");
 }
 function updateFrontmatter(content, updates) {
@@ -49764,9 +49764,10 @@ function pickFilenameStem(title, openalexId, used) {
 var OPENALEX_BASE = "https://api.openalex.org";
 var WORK_FIELDS = "id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location";
 var WORK_LOOKUP_FIELDS = "id,title,authorships,publication_year,doi";
-async function oaFetch(path, contactEmail) {
+async function oaFetch(path, contactEmail, apiKey) {
   const sep = path.includes("?") ? "&" : "?";
-  const url = `${OPENALEX_BASE}${path}${sep}mailto=${encodeURIComponent(contactEmail)}`;
+  let url = `${OPENALEX_BASE}${path}${sep}mailto=${encodeURIComponent(contactEmail)}`;
+  if (apiKey) url += `&api_key=${encodeURIComponent(apiKey)}`;
   const res = await fetchWithRetry(url, {
     headers: {
       "User-Agent": `markuxt-sync-publications/1.0 (mailto:${contactEmail})`
@@ -49779,30 +49780,33 @@ async function oaFetch(path, contactEmail) {
   }
   return res.json();
 }
-async function getInstitutionId(rorId, contactEmail) {
+async function getInstitutionId(rorId, contactEmail, apiKey) {
   const data = await oaFetch(
     `/institutions?filter=ror:${encodeURIComponent(rorId)}&select=id`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   if (!data.results?.length) {
     throw new Error(`Institution not found for ROR: ${rorId}`);
   }
   return data.results[0].id;
 }
-async function getAuthorId(orcid, contactEmail) {
+async function getAuthorId(orcid, contactEmail, apiKey) {
   const data = await oaFetch(
     `/authors?filter=orcid:${encodeURIComponent(orcid)}&select=id`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   return data.results?.[0]?.id ?? null;
 }
-async function getWorksForAuthor(authorId, institutionId, contactEmail) {
+async function getWorksForAuthor(authorId, institutionId, contactEmail, apiKey) {
   const works = [];
   let cursor = "*";
   while (true) {
     const data = await oaFetch(
       `/works?filter=author.id:${encodeURIComponent(authorId)},institution.id:${encodeURIComponent(institutionId)}&per_page=200&cursor=${encodeURIComponent(cursor)}&select=${WORK_FIELDS}`,
-      contactEmail
+      contactEmail,
+      apiKey
     );
     works.push(...data.results ?? []);
     if (!data.meta?.next_cursor) break;
@@ -49810,28 +49814,31 @@ async function getWorksForAuthor(authorId, institutionId, contactEmail) {
   }
   return works;
 }
-async function getWorkByOpenalexId(id2, contactEmail) {
+async function getWorkByOpenalexId(id2, contactEmail, apiKey) {
   const digits = id2.replace(/^W/, "").trim();
   if (!digits) return null;
   const data = await oaFetch(
     `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   return data.results?.[0] ?? null;
 }
-async function getWorkByDoi(bareDoi, contactEmail) {
+async function getWorkByDoi(bareDoi, contactEmail, apiKey) {
   if (!bareDoi) return null;
   const data = await oaFetch(
     `/works?filter=doi:${encodeURIComponent(bareDoi)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   return data.results?.[0] ?? null;
 }
-async function searchWorkByTitle(title, year, contactEmail) {
+async function searchWorkByTitle(title, year, contactEmail, apiKey) {
   if (!title) return null;
   const data = await oaFetch(
     `/works?search=${encodeURIComponent(title)}&filter=publication_year:${encodeURIComponent(String(year))}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
-    contactEmail
+    contactEmail,
+    apiKey
   );
   return data.results?.[0] ?? null;
 }
@@ -53157,21 +53164,21 @@ function deriveAuthorsFromWork(work) {
   }
   return { authors, authorsOrcid };
 }
-async function resolveWork(fm2, contactEmail) {
+async function resolveWork(fm2, contactEmail, apiKey) {
   const storedId = typeof fm2.openalex_id === "string" ? fm2.openalex_id.trim() : "";
   if (storedId) {
-    const work = await getWorkByOpenalexId(storedId, contactEmail);
+    const work = await getWorkByOpenalexId(storedId, contactEmail, apiKey);
     if (work) return work;
   }
   const doi = normalizeDoi(typeof fm2.doi === "string" ? fm2.doi : null);
   if (doi) {
-    const work = await getWorkByDoi(doi, contactEmail);
+    const work = await getWorkByDoi(doi, contactEmail, apiKey);
     if (work) return work;
   }
   const title = typeof fm2.title === "string" ? fm2.title.trim() : "";
   const year = typeof fm2.year === "number" ? fm2.year : typeof fm2.year === "string" ? parseInt(fm2.year, 10) : NaN;
   if (!title || !Number.isFinite(year)) return null;
-  const found = await searchWorkByTitle(title, year, contactEmail);
+  const found = await searchWorkByTitle(title, year, contactEmail, apiKey);
   if (!found) return null;
   const foundTitle = typeof found.title === "string" ? found.title : "";
   const foundAuthors = (found.authorships ?? []).map((a) => a.author?.display_name ? formatAuthorName(a.author.display_name) : null).filter((n15) => !!n15);
@@ -53183,7 +53190,7 @@ async function resolveWork(fm2, contactEmail) {
   }
   return null;
 }
-async function backfillPublication(file, contactEmail) {
+async function backfillPublication(file, contactEmail, apiKey) {
   const content = readFileSync3(file, "utf-8");
   const fm2 = parseYamlFrontmatter(content);
   if (Object.keys(fm2).length === 0) {
@@ -53194,7 +53201,7 @@ async function backfillPublication(file, contactEmail) {
   if (hasOpenalexId && hasAuthorsOrcid) {
     return { status: "complete" };
   }
-  const work = await resolveWork(fm2, contactEmail);
+  const work = await resolveWork(fm2, contactEmail, apiKey);
   if (!work) {
     return { status: "no_match", file, reason: "not found on OpenAlex" };
   }
@@ -53226,12 +53233,12 @@ async function backfillPublication(file, contactEmail) {
   }
   return { status: "backfilled", file, openalexId: rawId || void 0, changes };
 }
-async function backfillExisting(existing, contactEmail) {
+async function backfillExisting(existing, contactEmail, apiKey) {
   const changed = [];
   const incomplete = existing.filter((e) => !e.hasOpenalexId || !e.hasAuthorsOrcid);
   for (const e of incomplete) {
     try {
-      const result = await backfillPublication(e.file, contactEmail);
+      const result = await backfillPublication(e.file, contactEmail, apiKey);
       if (result.status === "backfilled") {
         changed.push(e.file);
         if (result.openalexId) e.openalexId = result.openalexId.replace(/^W/, "");
@@ -53250,6 +53257,7 @@ async function backfillExisting(existing, contactEmail) {
 loadEnvFiles(void 0, process.env.NODE_ENV || "development");
 var ROR_ID = process.env.INPUT_ROR_ID || process.env.ROR_ID || "";
 var CONTACT_EMAIL = process.env.INPUT_CONTACT_EMAIL || process.env.CONTACT_EMAIL || "";
+var API_KEY = process.env.INPUT_OPENALEX_API_KEY || process.env.OPENALEX_API_KEY || "";
 var MEMBERS_DIR_INPUT = process.env.INPUT_MEMBERS_DIR || process.env.MEMBERS_DIR || "";
 var PUBLICATIONS_DIR_INPUT = process.env.INPUT_PUBLICATIONS_DIR || process.env.PUBLICATIONS_DIR || "";
 var GITHUB_OUTPUT = process.env.GITHUB_OUTPUT || "";
@@ -53293,11 +53301,12 @@ async function main() {
   console.log(`[markuxt-sync-publications] ROR ID: ${ROR_ID}`);
   console.log(`[markuxt-sync-publications] Publications dir: ${PUBLICATIONS_DIR}`);
   console.log(`[markuxt-sync-publications] Members dir: ${MEMBERS_DIR}`);
-  const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL);
+  console.log(`[markuxt-sync-publications] OpenAlex pool: ${API_KEY ? "premium (api_key)" : "polite (mailto)"}`);
+  const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL, API_KEY);
   console.log(`[markuxt-sync-publications] Institution ID: ${institutionId}`);
   const existing = await scanExistingPublications(PUBLICATIONS_DIR);
   console.log(`[markuxt-sync-publications] Found ${existing.length} existing publications`);
-  const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL);
+  const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL, API_KEY);
   console.log(`[markuxt-sync-publications] Backfilled ${backfilledFiles.length} existing publication(s)`);
   const existingOpenalexIds = new Set(
     existing.map((p10) => p10.openalexId).filter((id2) => !!id2)
@@ -53310,13 +53319,13 @@ async function main() {
   const allWorks = /* @__PURE__ */ new Map();
   for (const member of members) {
     console.log(`[markuxt-sync-publications] Processing ${member.name} (${member.orcid})...`);
-    const authorId = await getAuthorId(member.orcid, CONTACT_EMAIL);
+    const authorId = await getAuthorId(member.orcid, CONTACT_EMAIL, API_KEY);
     if (!authorId) {
       console.warn(`  \u2192 Not found on OpenAlex: ${member.orcid}`);
       continue;
     }
     console.log(`  \u2192 Author ID: ${authorId}`);
-    const works = await getWorksForAuthor(authorId, institutionId, CONTACT_EMAIL);
+    const works = await getWorksForAuthor(authorId, institutionId, CONTACT_EMAIL, API_KEY);
     console.log(`  \u2192 ${works.length} works`);
     for (const w of works) {
       const pub = parseWork(w);

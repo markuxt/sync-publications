@@ -12,6 +12,13 @@ inputs:
   contact_email:
     description: 'Contact email for OpenAlex API requests'
     required: true
+  openalex_api_key:
+    description: >
+      OpenAlex API key (premium tier). Optional — the action works on the free
+      polite pool with just contact_email. Provide a key to use the premium
+      pool (higher rate limits). See the example workflow for passing it from
+      a repository secret.
+    required: false
   members_dir:
     description: >
       Path to the members directory, where member markdown with ORCIDs is

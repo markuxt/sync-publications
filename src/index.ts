@@ -54,6 +54,7 @@ import { backfillExisting } from './workers/backfill'
 
 const ROR_ID = process.env.INPUT_ROR_ID || process.env.ROR_ID || ''
 const CONTACT_EMAIL = process.env.INPUT_CONTACT_EMAIL || process.env.CONTACT_EMAIL || ''
+const API_KEY = process.env.INPUT_OPENALEX_API_KEY || process.env.OPENALEX_API_KEY || ''
 const MEMBERS_DIR_INPUT = process.env.INPUT_MEMBERS_DIR || process.env.MEMBERS_DIR || ''
 const PUBLICATIONS_DIR_INPUT = process.env.INPUT_PUBLICATIONS_DIR || process.env.PUBLICATIONS_DIR || ''
 const GITHUB_OUTPUT = process.env.GITHUB_OUTPUT || ''
@@ -124,9 +125,10 @@ async function main() {
   console.log(`[markuxt-sync-publications] ROR ID: ${ROR_ID}`)
   console.log(`[markuxt-sync-publications] Publications dir: ${PUBLICATIONS_DIR}`)
   console.log(`[markuxt-sync-publications] Members dir: ${MEMBERS_DIR}`)
+  console.log(`[markuxt-sync-publications] OpenAlex pool: ${API_KEY ? 'premium (api_key)' : 'polite (mailto)'}`)
 
   // 1. Resolve institution OpenAlex ID
-  const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL)
+  const institutionId = await getInstitutionId(ROR_ID, CONTACT_EMAIL, API_KEY)
   console.log(`[markuxt-sync-publications] Institution ID: ${institutionId}`)
 
   // 2. Scan existing publications
@@ -138,7 +140,7 @@ async function main() {
   // fills missing fields and preserves the body. Runs before the dedup sets
   // are built so newly-resolved IDs suppress the same works from being
   // re-added as new.
-  const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL)
+  const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL, API_KEY)
   console.log(`[markuxt-sync-publications] Backfilled ${backfilledFiles.length} existing publication(s)`)
 
   const existingOpenalexIds = new Set(
@@ -159,7 +161,7 @@ async function main() {
 
   for (const member of members) {
     console.log(`[markuxt-sync-publications] Processing ${member.name} (${member.orcid})...`)
-    const authorId = await getAuthorId(member.orcid, CONTACT_EMAIL)
+    const authorId = await getAuthorId(member.orcid, CONTACT_EMAIL, API_KEY)
 
     if (!authorId) {
       console.warn(`  → Not found on OpenAlex: ${member.orcid}`)
@@ -167,7 +169,7 @@ async function main() {
     }
 
     console.log(`  → Author ID: ${authorId}`)
-    const works = await getWorksForAuthor(authorId, institutionId, CONTACT_EMAIL)
+    const works = await getWorksForAuthor(authorId, institutionId, CONTACT_EMAIL, API_KEY)
     console.log(`  → ${works.length} works`)
 
     for (const w of works) {
