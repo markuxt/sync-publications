@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   pickPdfUrl,
+  pickPdfUrls,
   locateAbstractPage,
   hasPdftoppm,
   downloadPdf,
@@ -29,12 +30,12 @@ describe('pickPdfUrl', () => {
     expect(pickPdfUrl(w)).toBe('https://b.com/2.pdf')
   })
 
-  it('falls back to open_access.oa_url when nothing else is present', () => {
+  it('ignores open_access.oa_url (a landing page, not a direct PDF)', () => {
     const w: OpenAlexWork = {
       id: 'W1', title: 'T', publication_year: 2024,
       open_access: { is_oa: true, oa_url: 'https://c.com/3.pdf' }
     }
-    expect(pickPdfUrl(w)).toBe('https://c.com/3.pdf')
+    expect(pickPdfUrl(w)).toBeNull()
   })
 
   it('returns null when no OA URL is present', () => {
@@ -50,6 +51,34 @@ describe('pickPdfUrl', () => {
       best_oa_location: { pdf_url: 'ftp://invalid' }
     }
     expect(pickPdfUrl(w)).toBeNull()
+  })
+})
+
+describe('pickPdfUrls', () => {
+  it('returns direct pdf_urls in priority order, de-duplicated, excluding DOI/landing URLs', () => {
+    const w = {
+      best_oa_location: { pdf_url: 'https://a.com/1.pdf' },
+      locations: [
+        { pdf_url: 'https://a.com/1.pdf' },        // dup of best_oa_location → dropped
+        { pdf_url: 'https://doi.org/10.1000/x' },  // DOI resolver → never a PDF → dropped
+        { pdf_url: 'https://b.com/2.pdf' },
+        { pdf_url: null }
+      ],
+      primary_location: { pdf_url: 'https://c.com/3.pdf' },
+      open_access: { oa_url: 'https://d.com/4.pdf' } // landing page → ignored
+    } as OpenAlexWork
+    expect(pickPdfUrls(w)).toEqual([
+      'https://a.com/1.pdf',
+      'https://b.com/2.pdf',
+      'https://c.com/3.pdf'
+    ])
+  })
+
+  it('returns [] when no candidate is an http(s) URL', () => {
+    const w = {
+      locations: [{ pdf_url: 'ftp://x' }, { pdf_url: null }]
+    } as OpenAlexWork
+    expect(pickPdfUrls(w)).toEqual([])
   })
 })
 
@@ -201,7 +230,7 @@ describe('downloadPdf', () => {
 
 describe('processPdf', () => {
   it('returns skipped result when no PDF URL is set', async () => {
-    const result = await processPdf({ abstract: 'foo', pdfUrl: null }, '/tmp', '/tmp', 'W123')
+    const result = await processPdf({ abstract: 'foo', pdfUrl: null }, '/tmp', 'W123')
     expect(result.skipped).toBe(true)
     expect(result.pdfUrl).toBeNull()
     expect(result.reason).toMatch(/PDF URL/)
@@ -215,7 +244,7 @@ describe('processPdf', () => {
     try {
       const result = await processPdf(
         { abstract: 'foo', pdfUrl: 'https://example.com/x.pdf' },
-        '/tmp', '/tmp', 'W123'
+        '/tmp', 'W123'
       )
       expect(result.skipped).toBe(true)
       expect(result.pdfUrl).toBe('https://example.com/x.pdf')

@@ -19,7 +19,7 @@ const OPENALEX_BASE = 'https://api.openalex.org'
  * WORK_LOOKUP_FIELDS is a focused set for single-work lookups (backfill):
  * just the ID plus what's needed for the similarity guard and author ORCIDs.
  */
-const WORK_FIELDS = 'id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location'
+export const WORK_FIELDS = 'id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location,locations'
 const WORK_LOOKUP_FIELDS = 'id,title,authorships,publication_year,doi'
 
 /**
@@ -117,11 +117,11 @@ export async function getWorksForAuthor(
  * Look up a single work by its OpenAlex ID (W… form, with or without leading W).
  * Returns null if not found.
  */
-export async function getWorkByOpenalexId(id: string, contactEmail: string, apiKey?: string): Promise<OpenAlexWork | null> {
+export async function getWorkByOpenalexId(id: string, contactEmail: string, apiKey?: string, fields: string = WORK_LOOKUP_FIELDS): Promise<OpenAlexWork | null> {
   const digits = id.replace(/^W/, '').trim()
   if (!digits) return null
   const data = await oaFetch(
-    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
+    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${fields}`,
     contactEmail,
     apiKey
   ) as OpenAlexResponse<OpenAlexWork>

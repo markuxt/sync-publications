@@ -44,6 +44,7 @@ import { scanMembersWithOrcid } from './scanners/members'
 import { parseWork } from './workers/parser'
 import { filterDuplicates, deduplicatePending } from './workers/deduplicator'
 import { backfillExisting } from './workers/backfill'
+import { backfillScreenshots } from './workers/screenshot-backfill'
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -99,8 +100,6 @@ function buildMarkdown(pub: PendingPublication): string {
   lines.push(`doi: ${pub.doi ? yamlStr(pub.doi) : ''}`)
   lines.push(`openalex_id: ${pub.openalexId}`)
   lines.push(`venue: ${pub.venue ? yamlStr(pub.venue) : ''}`)
-  lines.push(`pdf_url: ${pub.pdfUrl ? yamlStr(pub.pdfUrl) : ''}`)
-  lines.push(`abstract_page: ${pub.abstractPage ?? ''}`)
   lines.push(`abstract_screenshot: ${pub.abstractScreenshot ? yamlStr(pub.abstractScreenshot) : ''}`)
 
   if (pub.keywords.length) {
@@ -142,6 +141,13 @@ async function main() {
   // re-added as new.
   const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL, API_KEY)
   console.log(`[markuxt-sync-publications] Backfilled ${backfilledFiles.length} existing publication(s)`)
+
+  // 2b. Backfill abstract-page screenshots for existing publications that have
+  // a reachable OA PDF but no screenshot yet. Idempotent — pubs that already
+  // have an abstract_screenshot are skipped, so this only does work the first
+  // time (or when a previously-unreachable PDF becomes reachable).
+  const screenshotFiles = await backfillScreenshots(existing, CONTACT_EMAIL, API_KEY)
+  console.log(`[markuxt-sync-publications] Added screenshots to ${screenshotFiles.length} existing publication(s)`)
 
   const existingOpenalexIds = new Set(
     existing.map(p => p.openalexId).filter((id): id is string => !!id)
@@ -223,8 +229,7 @@ async function main() {
     //     metadata we have. We only run this for OA papers with a PDF URL.
     if (pub.pdfUrl && !pub.hidden) {
       try {
-        const relativeYearDir = join(PUBLICATIONS_DIR, yearKey)
-        const result = await processPdf(pub, yearDir, relativeYearDir, stem)
+        const result = await processPdf(pub, yearDir, stem)
         pub.pdfUrl = result.pdfUrl
         pub.abstractPage = result.abstractPage
         pub.abstractScreenshot = result.screenshotPath
@@ -252,6 +257,8 @@ async function main() {
   setOutput('new_publications_files', newFiles.join('\n'))
   setOutput('backfilled_publications_count', String(backfilledFiles.length))
   setOutput('backfilled_publications_files', backfilledFiles.join('\n'))
+  setOutput('screenshots_backfilled_count', String(screenshotFiles.length))
+  setOutput('screenshots_backfilled_files', screenshotFiles.join('\n'))
 
   console.log(`[markuxt-sync-publications] Done. Added ${newFiles.length} publication files.`)
 }

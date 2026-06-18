@@ -10,7 +10,7 @@ import type { PendingPublication, OpenAlexWork } from '../types'
 import { formatAuthorName, extractOrcidId } from '../utils/formatters'
 import { reconstructAbstract } from '../utils/abstract'
 import { doiToUrl } from '../utils/doi'
-import { pickPdfUrl } from '../utils/pdf'
+import { pickPdfUrls } from '../utils/pdf'
 
 /**
  * Parse an OpenAlex work object into our internal publication format.
@@ -86,8 +86,9 @@ export function parseWork(work: OpenAlexWork): PendingPublication | null {
   // Extract abstract (reconstructed from inverted index)
   const abstract = reconstructAbstract(work.abstract_inverted_index ?? null)
 
-  // Extract best-effort open-access PDF URL
-  const pdfUrl = pickPdfUrl(work)
+  // Extract best-effort open-access PDF URL candidates (tried in order)
+  const pdfUrls = pickPdfUrls(work)
+  const pdfUrl = pdfUrls[0] ?? null
 
   return {
     openalexId: rawId,
@@ -100,6 +101,7 @@ export function parseWork(work: OpenAlexWork): PendingPublication | null {
     keywords,
     abstract,
     pdfUrl,
+    pdfUrls,
     abstractPage: null,
     abstractScreenshot: null,
     hidden: false

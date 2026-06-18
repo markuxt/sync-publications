@@ -36,6 +36,8 @@ export interface PendingPublication {
   abstract: string | null
   /** Best-effort open-access PDF URL (canonical, https). */
   pdfUrl: string | null
+  /** All candidate OA PDF URLs, tried in order until one downloads as a PDF. */
+  pdfUrls: string[]
   /** 1-indexed page number on which the abstract was located. */
   abstractPage: number | null
   /** Relative path (from repo root) to the rendered abstract-page PNG. */
@@ -59,6 +61,8 @@ export interface OpenAlexWork {
   abstract_inverted_index?: Record<string, number[]>
   open_access?: OpenAccess
   best_oa_location?: OpenAccessLocation
+  /** Every OA/host location for the work — each may carry its own pdf_url. */
+  locations?: OpenAccessLocation[]
 }
 
 export interface OpenAccess {

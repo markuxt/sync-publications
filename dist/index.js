@@ -49251,7 +49251,7 @@ fn fs_main(in : VertexOutput) -> @location(0) vec4<f32> {
 });
 
 // src/index.ts
-import { writeFileSync as writeFileSync3, mkdirSync as mkdirSync2, existsSync as existsSync3 } from "fs";
+import { writeFileSync as writeFileSync4, mkdirSync as mkdirSync2, existsSync as existsSync3 } from "fs";
 import { join as join3 } from "path";
 
 // src/utils/env.ts
@@ -49532,24 +49532,33 @@ async function fetchWithRetry(url, init = {}) {
 var SCREENSHOT_DPI = 200;
 var MIN_SHORT_SIDE_PX = 1e3;
 var MAX_PDF_BYTES = 50 * 1024 * 1024;
-function pickPdfUrl(work) {
-  const candidates = [
-    work.best_oa_location?.pdf_url,
-    work.primary_location?.pdf_url,
-    work.open_access?.oa_url
-  ];
+var PDF_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+function pickPdfUrls(work) {
+  const candidates = [];
+  candidates.push(work.best_oa_location?.pdf_url);
+  for (const loc of work.locations ?? []) candidates.push(loc?.pdf_url);
+  candidates.push(work.primary_location?.pdf_url);
+  const seen = /* @__PURE__ */ new Set();
+  const out = [];
   for (const c of candidates) {
     if (typeof c !== "string" || !c) continue;
     if (!/^https?:\/\//i.test(c)) continue;
-    return c;
+    if (/^https?:\/\/(dx\.)?doi\.org\//i.test(c)) continue;
+    if (seen.has(c)) continue;
+    seen.add(c);
+    out.push(c);
   }
-  return null;
+  return out;
 }
 async function downloadPdf(url) {
   try {
     const res = await fetchWithRetry(url, {
       timeoutMs: 6e4,
-      retries: 2
+      retries: 2,
+      headers: {
+        "User-Agent": PDF_USER_AGENT,
+        "Accept": "application/pdf,application/octet-stream,*/*"
+      }
     });
     if (!res.ok) {
       console.warn(`[pdf] download failed (${res.status}): ${url}`);
@@ -49689,13 +49698,22 @@ function _expectedMinShortSide(dpi = SCREENSHOT_DPI) {
 if (_expectedMinShortSide() < MIN_SHORT_SIDE_PX) {
   throw new Error(`SCREENSHOT_DPI ${SCREENSHOT_DPI} too low for ${MIN_SHORT_SIDE_PX}px minimum`);
 }
-async function processPdf(work, outDir, relativeDir, name = "abstract-page") {
-  if (!work.pdfUrl) {
+async function processPdf(work, outDir, name = "abstract-page") {
+  const urls = work.pdfUrls && work.pdfUrls.length ? work.pdfUrls : work.pdfUrl ? [work.pdfUrl] : [];
+  if (!urls.length) {
     return { pdfUrl: null, abstractPage: null, screenshotPath: null, skipped: true, reason: "no PDF URL" };
   }
-  const pdfBuffer = await downloadPdf(work.pdfUrl);
+  let pdfBuffer = null;
+  let usedUrl = urls[0];
+  for (const url of urls) {
+    pdfBuffer = await downloadPdf(url);
+    if (pdfBuffer) {
+      usedUrl = url;
+      break;
+    }
+  }
   if (!pdfBuffer) {
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "download failed" };
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "download failed" };
   }
   let pageTexts = [];
   let abstractPage = null;
@@ -49704,15 +49722,15 @@ async function processPdf(work, outDir, relativeDir, name = "abstract-page") {
     abstractPage = locateAbstractPage(work.abstract, pageTexts);
   } catch (err) {
     console.warn(`[pdf] text extraction failed: ${err.message}`);
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "text extraction failed" };
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "text extraction failed" };
   }
   if (!abstractPage) {
-    return { pdfUrl: work.pdfUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "abstract page not located" };
+    return { pdfUrl: usedUrl, abstractPage: null, screenshotPath: null, skipped: true, reason: "abstract page not located" };
   }
   if (!await hasPdftoppm()) {
     console.warn(`[pdf] pdftoppm not installed \u2014 skipping screenshot, keeping PDF URL + abstract page`);
     return {
-      pdfUrl: work.pdfUrl,
+      pdfUrl: usedUrl,
       abstractPage,
       screenshotPath: null,
       skipped: true,
@@ -49726,12 +49744,12 @@ async function processPdf(work, outDir, relativeDir, name = "abstract-page") {
     const outPath = join2(outDir, `${name}.png`);
     const rendered = await renderPageWithPdftoppm(tmpPdfPath, abstractPage, outPath);
     if (!rendered) {
-      return { pdfUrl: work.pdfUrl, abstractPage, screenshotPath: null, skipped: true, reason: "render failed" };
+      return { pdfUrl: usedUrl, abstractPage, screenshotPath: null, skipped: true, reason: "render failed" };
     }
     return {
-      pdfUrl: work.pdfUrl,
+      pdfUrl: usedUrl,
       abstractPage,
-      screenshotPath: join2(relativeDir, `${name}.png`),
+      screenshotPath: `${name}.png`,
       skipped: false
     };
   } finally {
@@ -49762,7 +49780,7 @@ function pickFilenameStem(title, openalexId, used) {
 
 // src/utils/openalex.ts
 var OPENALEX_BASE = "https://api.openalex.org";
-var WORK_FIELDS = "id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location";
+var WORK_FIELDS = "id,title,authorships,publication_year,doi,primary_location,keywords,abstract_inverted_index,open_access,best_oa_location,locations";
 var WORK_LOOKUP_FIELDS = "id,title,authorships,publication_year,doi";
 async function oaFetch(path, contactEmail, apiKey) {
   const sep = path.includes("?") ? "&" : "?";
@@ -49814,11 +49832,11 @@ async function getWorksForAuthor(authorId, institutionId, contactEmail, apiKey) 
   }
   return works;
 }
-async function getWorkByOpenalexId(id2, contactEmail, apiKey) {
+async function getWorkByOpenalexId(id2, contactEmail, apiKey, fields = WORK_LOOKUP_FIELDS) {
   const digits = id2.replace(/^W/, "").trim();
   if (!digits) return null;
   const data = await oaFetch(
-    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${WORK_LOOKUP_FIELDS}`,
+    `/works?filter=openalex:${encodeURIComponent(`W${digits}`)}&per_page=1&select=${fields}`,
     contactEmail,
     apiKey
   );
@@ -52974,7 +52992,8 @@ function parseWork(work) {
   const venue = work.primary_location?.source?.display_name ?? null;
   const keywords = Array.isArray(work.keywords) ? work.keywords.map((k10) => k10.display_name ?? "").filter(Boolean) : [];
   const abstract = reconstructAbstract(work.abstract_inverted_index ?? null);
-  const pdfUrl = pickPdfUrl(work);
+  const pdfUrls = pickPdfUrls(work);
+  const pdfUrl = pdfUrls[0] ?? null;
   return {
     openalexId: rawId,
     title,
@@ -52986,6 +53005,7 @@ function parseWork(work) {
     keywords,
     abstract,
     pdfUrl,
+    pdfUrls,
     abstractPage: null,
     abstractScreenshot: null,
     hidden: false
@@ -53253,6 +53273,54 @@ async function backfillExisting(existing, contactEmail, apiKey) {
   return changed;
 }
 
+// src/workers/screenshot-backfill.ts
+import { readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "fs";
+import { basename, dirname } from "path";
+function extractBody(content) {
+  const m = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/);
+  return m ? m[1].trim() : "";
+}
+async function backfillScreenshots(existing, contactEmail, apiKey) {
+  const changed = [];
+  for (const e of existing) {
+    if (!e.openalexId) continue;
+    let content;
+    try {
+      content = readFileSync4(e.file, "utf-8");
+    } catch {
+      continue;
+    }
+    const fm2 = parseYamlFrontmatter(content);
+    if (typeof fm2.abstract_screenshot === "string" && fm2.abstract_screenshot.trim()) continue;
+    const work = await getWorkByOpenalexId(e.openalexId, contactEmail, apiKey, WORK_FIELDS);
+    if (!work) continue;
+    const pub = parseWork(work);
+    if (!pub || !pub.pdfUrls.length) continue;
+    const abstract = extractBody(content) || pub.abstract;
+    const stem = basename(e.file, ".md");
+    const outDir = dirname(e.file);
+    let result;
+    try {
+      result = await processPdf(
+        { abstract: abstract || null, pdfUrl: pub.pdfUrl, pdfUrls: pub.pdfUrls },
+        outDir,
+        stem
+      );
+    } catch (err) {
+      console.warn(`  [screenshot error] ${e.file}: ${err.message}`);
+      continue;
+    }
+    if (!result.screenshotPath) continue;
+    const newContent = updateFrontmatter(content, { abstract_screenshot: result.screenshotPath });
+    if (newContent !== content) {
+      writeFileSync3(e.file, newContent, "utf-8");
+      changed.push(e.file);
+      console.log(`  [screenshot] ${e.file} \u2192 ${result.screenshotPath}`);
+    }
+  }
+  return changed;
+}
+
 // src/index.ts
 loadEnvFiles(void 0, process.env.NODE_ENV || "development");
 var ROR_ID = process.env.INPUT_ROR_ID || process.env.ROR_ID || "";
@@ -53283,8 +53351,6 @@ function buildMarkdown(pub) {
   lines.push(`doi: ${pub.doi ? yamlStr(pub.doi) : ""}`);
   lines.push(`openalex_id: ${pub.openalexId}`);
   lines.push(`venue: ${pub.venue ? yamlStr(pub.venue) : ""}`);
-  lines.push(`pdf_url: ${pub.pdfUrl ? yamlStr(pub.pdfUrl) : ""}`);
-  lines.push(`abstract_page: ${pub.abstractPage ?? ""}`);
   lines.push(`abstract_screenshot: ${pub.abstractScreenshot ? yamlStr(pub.abstractScreenshot) : ""}`);
   if (pub.keywords.length) {
     lines.push("keywords:");
@@ -53308,6 +53374,8 @@ async function main() {
   console.log(`[markuxt-sync-publications] Found ${existing.length} existing publications`);
   const backfilledFiles = await backfillExisting(existing, CONTACT_EMAIL, API_KEY);
   console.log(`[markuxt-sync-publications] Backfilled ${backfilledFiles.length} existing publication(s)`);
+  const screenshotFiles = await backfillScreenshots(existing, CONTACT_EMAIL, API_KEY);
+  console.log(`[markuxt-sync-publications] Added screenshots to ${screenshotFiles.length} existing publication(s)`);
   const existingOpenalexIds = new Set(
     existing.map((p10) => p10.openalexId).filter((id2) => !!id2)
   );
@@ -53355,8 +53423,7 @@ async function main() {
     used.add(stem);
     if (pub.pdfUrl && !pub.hidden) {
       try {
-        const relativeYearDir = join3(PUBLICATIONS_DIR, yearKey);
-        const result = await processPdf(pub, yearDir, relativeYearDir, stem);
+        const result = await processPdf(pub, yearDir, stem);
         pub.pdfUrl = result.pdfUrl;
         pub.abstractPage = result.abstractPage;
         pub.abstractScreenshot = result.screenshotPath;
@@ -53370,7 +53437,7 @@ async function main() {
       }
     }
     const filePath = join3(yearDir, `${stem}.md`);
-    writeFileSync3(filePath, buildMarkdown(pub), "utf-8");
+    writeFileSync4(filePath, buildMarkdown(pub), "utf-8");
     console.log(`  [${pub.hidden ? "hidden" : "visible"}] ${filePath}`);
     newFiles.push(filePath);
   }
@@ -53378,6 +53445,8 @@ async function main() {
   setOutput("new_publications_files", newFiles.join("\n"));
   setOutput("backfilled_publications_count", String(backfilledFiles.length));
   setOutput("backfilled_publications_files", backfilledFiles.join("\n"));
+  setOutput("screenshots_backfilled_count", String(screenshotFiles.length));
+  setOutput("screenshots_backfilled_files", screenshotFiles.join("\n"));
   console.log(`[markuxt-sync-publications] Done. Added ${newFiles.length} publication files.`);
 }
 main().catch((err) => {

@@ -46,6 +46,10 @@ outputs:
     description: 'Number of existing publications backfilled with missing openalex_id and/or authors_orcid'
   backfilled_publications_files:
     description: 'List of backfilled publication file paths'
+  screenshots_backfilled_count:
+    description: 'Number of existing publications that gained an abstract-page screenshot this run'
+  screenshots_backfilled_files:
+    description: 'List of files that gained a screenshot'
 
 runs:
   using: 'node24'
