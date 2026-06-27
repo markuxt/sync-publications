@@ -1,6 +1,6 @@
 {
   "name": "sync-publications-action",
-  "version": "0.0.2",
+  "version": "0.0.4",
   "description": "GitHub Action to sync publications from OpenAlex based on member ORCIDs",
   "main": "dist/index.js",
   "type": "module",
