@@ -52900,6 +52900,39 @@ async function scanExistingPublications(publicationsDir) {
 // src/scanners/members.ts
 import { readFileSync as readFileSync2 } from "fs";
 
+// src/utils/locale-variants.ts
+import { basename, dirname } from "path";
+var LOCALE_SUFFIX_RE = /\.([a-z]{2}(?:-[a-z0-9]{2,3})?)\.md$/i;
+function isLocaleVariant(filePath) {
+  return LOCALE_SUFFIX_RE.test(basename(filePath));
+}
+function stripLocaleSuffix(fileName) {
+  return basename(fileName).replace(LOCALE_SUFFIX_RE, "").replace(/\.md$/i, "");
+}
+function variantBaseKey(filePath) {
+  const normalized = filePath.replace(/\\/g, "/");
+  return `${dirname(normalized)}/${stripLocaleSuffix(basename(normalized))}`;
+}
+function groupVariantsByPriority(files) {
+  const groups = /* @__PURE__ */ new Map();
+  const order = [];
+  for (const f of files) {
+    const key = variantBaseKey(f);
+    const arr = groups.get(key);
+    if (arr) arr.push(f);
+    else {
+      groups.set(key, [f]);
+      order.push(key);
+    }
+  }
+  return order.map((key) => sortVariantsByPriority(groups.get(key)));
+}
+function sortVariantsByPriority(group) {
+  const def = group.find((f) => !isLocaleVariant(f));
+  if (def) return [def, ...group.filter((f) => f !== def).sort()];
+  return [...group].sort();
+}
+
 // src/utils/formatters.ts
 function formatAuthorName(displayName) {
   const parts = displayName.trim().split(/\s+/);
@@ -52929,23 +52962,34 @@ function isValidOrcid(orcid) {
   return digits[15] === expected;
 }
 async function scanMembersWithOrcid(membersDir) {
-  const files = await findMarkdownFiles(membersDir);
+  const groups = groupVariantsByPriority(await findMarkdownFiles(membersDir));
   const members = [];
-  for (const file of files) {
-    const content = readFileSync2(file, "utf-8");
-    const fm2 = parseYamlFrontmatter(content);
-    if (fm2._hidden === "true" || fm2._hidden === true) continue;
-    const rawOrcid = typeof fm2.orcid === "string" ? fm2.orcid.trim() : "";
-    if (!rawOrcid) continue;
-    const orcid = extractOrcidId(rawOrcid);
-    if (!orcid || !isValidOrcid(orcid)) {
-      console.warn(`[members] Skipping ${file}: invalid ORCID "${rawOrcid}"`);
-      continue;
+  for (const files of groups) {
+    let name;
+    let orcid;
+    for (const file of files) {
+      const content = readFileSync2(file, "utf-8");
+      const fm2 = parseYamlFrontmatter(content);
+      if (fm2._hidden === "true" || fm2._hidden === true) continue;
+      if (!name && typeof fm2.name === "string") {
+        name = fm2.name;
+      }
+      if (!orcid) {
+        const rawOrcid = typeof fm2.orcid === "string" ? fm2.orcid.trim() : "";
+        if (rawOrcid) {
+          const candidate = extractOrcidId(rawOrcid);
+          if (candidate && isValidOrcid(candidate)) {
+            orcid = candidate;
+          } else {
+            console.warn(`[members] ${file}: invalid ORCID "${rawOrcid}"`);
+          }
+        }
+      }
+      if (name && orcid) break;
     }
-    members.push({
-      name: typeof fm2.name === "string" ? fm2.name : "Unknown",
-      orcid
-    });
+    if (orcid) {
+      members.push({ name: name || "Unknown", orcid });
+    }
   }
   return members;
 }
@@ -53275,7 +53319,7 @@ async function backfillExisting(existing, contactEmail, apiKey) {
 
 // src/workers/screenshot-backfill.ts
 import { readFileSync as readFileSync4, writeFileSync as writeFileSync3 } from "fs";
-import { basename, dirname } from "path";
+import { basename as basename2, dirname as dirname2 } from "path";
 function extractBody(content) {
   const m = content.match(/^---\r?\n[\s\S]*?\r?\n---\r?\n?([\s\S]*)$/);
   return m ? m[1].trim() : "";
@@ -53297,8 +53341,8 @@ async function backfillScreenshots(existing, contactEmail, apiKey) {
     const pub = parseWork(work);
     if (!pub || !pub.pdfUrls.length) continue;
     const abstract = extractBody(content) || pub.abstract;
-    const stem = basename(e.file, ".md");
-    const outDir = dirname(e.file);
+    const stem = basename2(e.file, ".md");
+    const outDir = dirname2(e.file);
     let result;
     try {
       result = await processPdf(
