@@ -129,4 +129,83 @@ describe('scanMembersWithOrcid', () => {
     expect(members).toHaveLength(2)
     expect(members.map(m => m.name).sort()).toEqual(['A', 'B'])
   })
+
+  it('collapses locale variants to one member, reading the default', async () => {
+    // Default (en) carries the ORCID; the zh-CN partial overrides only the name
+    // and omits orcid. Only the default variant should be read.
+    writeFileSync(
+      join(dir, 'ruibin-bai.md'),
+      '---\nname: Ruibin Bai\norcid: 0000-0003-1722-568X\n---\nbody'
+    )
+    writeFileSync(
+      join(dir, 'ruibin-bai.zh-CN.md'),
+      '---\nname: 白瑞斌\n---\nbody'
+    )
+    const members = await scanMembersWithOrcid(dir)
+    expect(members).toHaveLength(1)
+    expect(members[0]).toEqual({ name: 'Ruibin Bai', orcid: '0000-0003-1722-568X' })
+  })
+
+  it('does not double-count an ORCID present in both variants', async () => {
+    // If both variants somehow carry the same ORCID, the member is still one.
+    writeFileSync(
+      join(dir, 'dup.md'),
+      '---\nname: Dup En\norcid: 0000-0001-2345-6789\n---\n'
+    )
+    writeFileSync(
+      join(dir, 'dup.zh-CN.md'),
+      '---\nname: Dup Zh\norcid: 0000-0001-2345-6789\n---\n'
+    )
+    const members = await scanMembersWithOrcid(dir)
+    expect(members).toHaveLength(1)
+    // The default (non-suffixed) variant wins.
+    expect(members[0].name).toBe('Dup En')
+  })
+
+  it('falls back to a variant when only suffixed files exist', async () => {
+    // No default file — the alphabetically smallest variant is read.
+    writeFileSync(
+      join(dir, 'only.en.md'),
+      '---\nname: Only En\norcid: 0000-0001-2345-6789\n---\n'
+    )
+    writeFileSync(
+      join(dir, 'only.zh-CN.md'),
+      '---\nname: 只有中文\n---\n'
+    )
+    const members = await scanMembersWithOrcid(dir)
+    expect(members).toHaveLength(1)
+    expect(members[0]).toEqual({ name: 'Only En', orcid: '0000-0001-2345-6789' })
+  })
+
+  it('takes a field the default lacks from the first variant that has it', async () => {
+    // Default has name but NO orcid; the zh-CN variant carries the orcid.
+    // Field-level merge: name from default, orcid from the variant.
+    writeFileSync(
+      join(dir, 'ruibin-bai.md'),
+      '---\nname: Ruibin Bai\n---\nbody'
+    )
+    writeFileSync(
+      join(dir, 'ruibin-bai.zh-CN.md'),
+      '---\nname: 白瑞斌\norcid: 0000-0003-1722-568X\n---\n'
+    )
+    const members = await scanMembersWithOrcid(dir)
+    expect(members).toHaveLength(1)
+    expect(members[0]).toEqual({ name: 'Ruibin Bai', orcid: '0000-0003-1722-568X' })
+  })
+
+  it('merges fields across multiple variants by alphabetical order', async () => {
+    // No default. name only in zh-CN, orcid only in en. en < zh-CN → orcid from
+    // en, name falls back to zh-CN (the next variant with a name).
+    writeFileSync(
+      join(dir, 'split.en.md'),
+      '---\norcid: 0000-0001-2345-6789\n---\n'
+    )
+    writeFileSync(
+      join(dir, 'split.zh-CN.md'),
+      '---\nname: Split Zh\n---\n'
+    )
+    const members = await scanMembersWithOrcid(dir)
+    expect(members).toHaveLength(1)
+    expect(members[0]).toEqual({ name: 'Split Zh', orcid: '0000-0001-2345-6789' })
+  })
 })
