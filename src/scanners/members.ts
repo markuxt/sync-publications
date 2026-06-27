@@ -13,6 +13,7 @@
 import { readFileSync } from 'fs'
 import { parseYamlFrontmatter } from '../utils/yaml'
 import { findMarkdownFiles } from '../utils/glob'
+import { groupVariantsByPriority } from '../utils/locale-variants'
 import { extractOrcidId } from '../utils/formatters'
 import type { MemberInfo } from '../types'
 
@@ -39,31 +40,52 @@ function isValidOrcid(orcid: string): boolean {
 
 /**
  * Scan all members and filter those with a valid ORCID.
+ *
+ * Locale variants of one member (`name.md` + `name.zh-CN.md`) are treated as a
+ * single member. Fields are merged PER FIELD in priority order — default
+ * (non-suffixed) file first, then remaining variants alphabetically — so a
+ * field the default omits (e.g. `orcid` only present in a locale variant) is
+ * still picked up from the first variant that defines it. See
+ * `utils/locale-variants.ts` (`groupVariantsByPriority`).
  */
 export async function scanMembersWithOrcid(membersDir: string): Promise<MemberInfo[]> {
-  const files = await findMarkdownFiles(membersDir)
+  const groups = groupVariantsByPriority(await findMarkdownFiles(membersDir))
   const members: MemberInfo[] = []
 
-  for (const file of files) {
-    const content = readFileSync(file, 'utf-8')
-    const fm = parseYamlFrontmatter(content)
+  for (const files of groups) {
+    let name: string | undefined
+    let orcid: string | undefined
 
-    // Skip hidden members
-    if (fm._hidden === 'true' || fm._hidden === true) continue
+    for (const file of files) {
+      const content = readFileSync(file, 'utf-8')
+      const fm = parseYamlFrontmatter(content)
 
-    const rawOrcid = typeof fm.orcid === 'string' ? fm.orcid.trim() : ''
-    if (!rawOrcid) continue
+      // Skip hidden variants (other variants of the same member can still contribute).
+      if (fm._hidden === 'true' || fm._hidden === true) continue
 
-    const orcid = extractOrcidId(rawOrcid)
-    if (!orcid || !isValidOrcid(orcid)) {
-      console.warn(`[members] Skipping ${file}: invalid ORCID "${rawOrcid}"`)
-      continue
+      if (!name && typeof fm.name === 'string') {
+        name = fm.name
+      }
+
+      if (!orcid) {
+        const rawOrcid = typeof fm.orcid === 'string' ? fm.orcid.trim() : ''
+        if (rawOrcid) {
+          const candidate = extractOrcidId(rawOrcid)
+          if (candidate && isValidOrcid(candidate)) {
+            orcid = candidate
+          } else {
+            console.warn(`[members] ${file}: invalid ORCID "${rawOrcid}"`)
+          }
+        }
+      }
+
+      // Stop reading more variants once we have both fields.
+      if (name && orcid) break
     }
 
-    members.push({
-      name: typeof fm.name === 'string' ? fm.name : 'Unknown',
-      orcid
-    })
+    if (orcid) {
+      members.push({ name: name || 'Unknown', orcid })
+    }
   }
 
   return members
